@@ -1,1 +1,212 @@
-<h1>ok</h1>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Man Power — messaging at human speed</title>
+<meta name="description" content="Carrier pigeon messaging, except the courier is the fastest human alive. Messages arrive only once a world-record athlete could have run and swum the distance.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏃</text></svg>">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<!-- ───────────────────────────── sign in ───────────────────────────── -->
+<section id="auth" class="auth">
+  <canvas id="auth-globe" class="auth__globe" aria-hidden="true"></canvas>
+  <div class="auth__scrim"></div>
+
+  <div class="auth__card">
+    <div class="brand">
+      <span class="brand__mark">MAN<br>POWER</span>
+      <p class="brand__tag">Messaging at the speed of the fastest human alive.</p>
+    </div>
+
+    <p class="auth__blurb">
+      Your message is not transmitted. It is <em>carried</em> — run across every
+      landmass, swum across every sea, at world-record pace the whole way. It
+      appears in the recipient's hands when a human could have arrived, and not
+      one second sooner.
+    </p>
+
+    <div class="tabs" role="tablist">
+      <button class="tab is-active" data-auth-tab="login" role="tab">Sign in</button>
+      <button class="tab" data-auth-tab="register" role="tab">Enlist</button>
+    </div>
+
+    <form id="login-form" class="form">
+      <label class="field">
+        <span class="field__label">Handle</span>
+        <input name="handle" autocomplete="username" required placeholder="kipchoge">
+      </label>
+      <label class="field">
+        <span class="field__label">Password</span>
+        <input name="password" type="password" autocomplete="current-password" required>
+      </label>
+      <button class="btn btn--primary" type="submit">Sign in</button>
+      <p class="form__error" data-error></p>
+    </form>
+
+    <form id="register-form" class="form" hidden>
+      <label class="field">
+        <span class="field__label">Handle</span>
+        <input name="handle" autocomplete="username" required placeholder="kipchoge"
+               pattern="[A-Za-z0-9_-]{2,24}">
+      </label>
+      <label class="field">
+        <span class="field__label">Password</span>
+        <input name="password" type="password" autocomplete="new-password" required minlength="6">
+      </label>
+      <div class="field">
+        <span class="field__label">Where do you stand?</span>
+        <div class="citypick" data-citypick="register">
+          <input class="citypick__input" placeholder="Search for your city…" autocomplete="off">
+          <ul class="citypick__results" hidden></ul>
+        </div>
+        <p class="citypick__chosen" data-chosen hidden></p>
+      </div>
+      <button class="btn btn--primary" type="submit">Enlist</button>
+      <p class="form__error" data-error></p>
+    </form>
+  </div>
+</section>
+
+<!-- ────────────────────────────── the app ───────────────────────────── -->
+<main id="app" class="app" hidden>
+  <header class="topbar">
+    <span class="topbar__brand">MAN POWER</span>
+
+    <nav class="nav">
+      <button class="nav__item is-active" data-view="dispatch">Dispatch</button>
+      <button class="nav__item" data-view="flight">
+        In flight <span class="pill" data-count="flight">0</span>
+      </button>
+      <button class="nav__item" data-view="arrived">
+        Arrived <span class="pill pill--live" data-count="unread" hidden>0</span>
+      </button>
+      <button class="nav__item" data-view="records">Records</button>
+    </nav>
+
+    <div class="topbar__user">
+      <button class="whoami" id="whoami" title="Change your location">
+        <span class="whoami__handle" data-me-handle></span>
+        <span class="whoami__city" data-me-city></span>
+      </button>
+      <button class="btn btn--ghost btn--sm" id="logout">Sign out</button>
+    </div>
+  </header>
+
+  <div class="layout">
+    <aside class="rail">
+
+      <!-- Dispatch ------------------------------------------------------ -->
+      <section class="view is-active" data-view="dispatch">
+        <h2 class="view__title">Dispatch a courier</h2>
+
+        <label class="field">
+          <span class="field__label">Recipient</span>
+          <select id="recipient" class="select"></select>
+        </label>
+
+        <div id="quote" class="quote quote--empty">
+          <p class="quote__hint">Choose a recipient to see the journey.</p>
+        </div>
+
+        <label class="field">
+          <span class="field__label">Message</span>
+          <textarea id="body" rows="5" maxlength="2000"
+                    placeholder="Whatever you write here leaves on foot."></textarea>
+          <span class="field__count"><span data-charcount>0</span> / 2000</span>
+        </label>
+
+        <button class="btn btn--primary btn--block" id="send" disabled>Send on foot</button>
+        <p class="form__error" data-error="dispatch"></p>
+      </section>
+
+      <!-- In flight ----------------------------------------------------- -->
+      <section class="view" data-view="flight">
+        <h2 class="view__title">On the move</h2>
+        <p class="view__sub">Couriers currently out there, somewhere.</p>
+        <div id="flight-list" class="list"></div>
+      </section>
+
+      <!-- Arrived ------------------------------------------------------- -->
+      <section class="view" data-view="arrived">
+        <h2 class="view__title">Arrived</h2>
+        <p class="view__sub">Delivered by hand, on time, at record pace.</p>
+        <div id="arrived-list" class="list"></div>
+      </section>
+
+      <!-- Records ------------------------------------------------------- -->
+      <section class="view" data-view="records">
+        <h2 class="view__title">The pace book</h2>
+        <p class="view__sub">
+          Every journey is timed against these. Distances between two records are
+          interpolated along the endurance curve; beyond the longest record,
+          pace simply holds.
+        </p>
+        <div id="records-tables"></div>
+      </section>
+    </aside>
+
+    <!-- Stage: globe + readout ------------------------------------------ -->
+    <section class="stage">
+      <canvas id="globe" class="stage__globe"></canvas>
+
+      <div class="hud" id="hud" hidden>
+        <div class="hud__head">
+          <span class="hud__route" data-hud-route></span>
+          <button class="hud__close" data-hud-close aria-label="Clear">×</button>
+        </div>
+
+        <div class="hud__clock">
+          <span class="hud__clock-label" data-hud-label>Arrives in</span>
+          <span class="hud__clock-value" data-hud-countdown>—</span>
+        </div>
+
+        <div class="progress"><div class="progress__bar" data-hud-progress></div></div>
+
+        <dl class="stats">
+          <div class="stat"><dt>Distance</dt><dd data-hud-distance>—</dd></div>
+          <div class="stat"><dt>Run</dt><dd class="is-run" data-hud-run>—</dd></div>
+          <div class="stat"><dt>Swim</dt><dd class="is-swim" data-hud-swim>—</dd></div>
+          <div class="stat"><dt>Covered</dt><dd data-hud-covered>—</dd></div>
+        </dl>
+
+        <div class="hud__body" data-hud-body hidden></div>
+
+        <details class="legs">
+          <summary>Leg by leg <span data-hud-legcount></span></summary>
+          <ol class="legs__list" data-hud-legs></ol>
+        </details>
+      </div>
+
+      <div class="legend">
+        <span><i class="swatch swatch--run"></i>run</span>
+        <span><i class="swatch swatch--swim"></i>swim</span>
+      </div>
+    </section>
+  </div>
+</main>
+
+<!-- Location change ---------------------------------------------------- -->
+<dialog id="move-dialog" class="dialog">
+  <form method="dialog" class="dialog__inner">
+    <h3>Move your feet</h3>
+    <p class="dialog__note">Every journey is measured from where you stand.</p>
+    <div class="citypick" data-citypick="move">
+      <input class="citypick__input" placeholder="Search for a city…" autocomplete="off">
+      <ul class="citypick__results" hidden></ul>
+    </div>
+    <p class="citypick__chosen" data-chosen hidden></p>
+    <menu class="dialog__actions">
+      <button class="btn btn--ghost" value="cancel">Cancel</button>
+      <button class="btn btn--primary" id="move-confirm" value="ok" disabled>Move here</button>
+    </menu>
+  </form>
+</dialog>
+
+<div id="toast" class="toast" hidden></div>
+
+<script type="module" src="/app.js"></script>
+</body>
+</html>
