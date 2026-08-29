@@ -8,5 +8,8 @@
     "dev": "bun --watch server.js",
     "build:data": "bun run scripts/build-landmask.js && bun run scripts/build-cities.js && bun run scripts/build-world.js"
   },
-  "private": true
+  "private": true,
+  "devDependencies": {
+    "puppeteer-core": "^25.9.0"
+  }
 }
