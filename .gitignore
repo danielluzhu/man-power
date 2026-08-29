@@ -5,3 +5,8 @@ node_modules/
 *.sqlite-shm
 .DS_Store
 tmp/
+
+# Upstream source data — regenerated on demand by scripts/build-*.js
+data/ne_50m_land.json
+data/cities15000.txt
+data/countryInfo.txt
