@@ -6,7 +6,7 @@
   "scripts": {
     "start": "bun run server.js",
     "dev": "bun --watch server.js",
-    "build:data": "bun run scripts/build-landmask.js && bun run scripts/build-cities.js"
+    "build:data": "bun run scripts/build-landmask.js && bun run scripts/build-cities.js && bun run scripts/build-world.js"
   },
   "private": true
 }
