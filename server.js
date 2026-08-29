@@ -285,6 +285,14 @@ const server = Bun.serve({
     if (detail && req.method === "GET") return messageDetail(req, detail[1]);
     if (url.pathname.startsWith("/api/")) return fail("Not found", 404);
 
+    // Shared great-circle math, so the browser animates the courier with the
+    // same code the server used to time the journey.
+    if (url.pathname === "/sphere.js") {
+      return new Response(Bun.file("src/sphere.js"), {
+        headers: { "content-type": "text/javascript" },
+      });
+    }
+
     // Static files, with index.html as the fallback for client-side routes.
     const path = url.pathname === "/" ? "/index.html" : url.pathname;
     const file = Bun.file(`public${path}`);
