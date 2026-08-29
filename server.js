@@ -17,6 +17,16 @@ const mask = await LandMask.load();
 const db = store.openDatabase();
 const { cities, countries } = await Bun.file("data/cities.json").json();
 
+/** Strip diacritics and case so "Reykjavik" can match "Reykjavík". */
+const fold = (str) => str.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
+
+/**
+ * Folded names, computed once at boot.
+ * GeoNames stores "Reykjavík" and "São Paulo" with their diacritics, but people
+ * type "Reykjavik" and "Sao Paulo", so matching happens on the folded forms.
+ */
+const folded = cities.map((c) => fold(c[0]));
+
 console.log(`Land mask ${mask.width}×${mask.height} · ${cities.length} cities loaded`);
 
 /* ------------------------------------------------------------- helpers --- */
@@ -61,14 +71,14 @@ const cityObject = (c) => ({
  * prefix matches are promoted above interior matches.
  */
 function searchCities(query, limit = 12) {
-  const q = query.trim().toLowerCase();
+  const q = fold(query.trim());
   if (q.length < 2) return [];
   const exact = [], prefix = [], contains = [];
-  for (const c of cities) {
-    const name = c[0].toLowerCase();
-    if (name === q) exact.push(c);
-    else if (name.startsWith(q)) prefix.push(c);
-    else if (name.includes(q)) contains.push(c);
+  for (let i = 0; i < cities.length; i++) {
+    const name = folded[i];
+    if (name === q) exact.push(cities[i]);
+    else if (name.startsWith(q)) prefix.push(cities[i]);
+    else if (name.includes(q)) contains.push(cities[i]);
     if (exact.length + prefix.length >= limit) break;
   }
   return [...exact, ...prefix, ...contains].slice(0, limit).map(cityObject);
