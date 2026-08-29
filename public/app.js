@@ -75,6 +75,17 @@ function duration(seconds) {
   return parts.join(", ") || "moments";
 }
 
+/** "3 days ago", "just now" — for messages that have already landed. */
+function relative(timestamp) {
+  const s = Math.round((Date.now() - timestamp) / 1000);
+  if (s < 60) return "just now";
+  for (const [name, size] of [["day", DAY], ["hour", HOUR], ["minute", MIN]]) {
+    const n = Math.floor(s / size);
+    if (n >= 1) return `${n} ${name}${n === 1 ? "" : "s"} ago`;
+  }
+  return "just now";
+}
+
 function distance(metres) {
   if (metres < 1000) return `${Math.round(metres)} m`;
   const km = metres / 1000;
@@ -283,7 +294,10 @@ function messageCard(msg) {
   const clock = inFlight
     ? `<div class="card__count" data-until="${msg.arrivesAt}">${countdown((msg.arrivesAt - Date.now()) / 1000)}</div>
        <div class="progress"><div class="progress__bar" data-progress-for="${msg.id}"></div></div>`
-    : "";
+    : `<div class="card__landed">
+         ${msg.direction === "sent" ? "Delivered" : "Arrived"} ${relative(msg.arrivesAt)}
+         · ${duration(msg.totalSeconds)} on the road
+       </div>`;
 
   return `
     <button class="${classes}" data-message="${msg.id}">

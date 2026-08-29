@@ -316,6 +316,11 @@ textarea { resize: vertical; min-height: 6rem; line-height: 1.6; }
   margin-top: .4rem;
   font-variant-numeric: tabular-nums;
 }
+.card__landed {
+  margin-top: .35rem;
+  font: 11px var(--mono);
+  color: var(--ink-faint);
+}
 .card__preview {
   margin-top: .4rem;
   color: var(--ink-dim);
