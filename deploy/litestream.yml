@@ -1,0 +1,31 @@
+# Continuous backup for the Man Power database.
+#
+# A message can be three weeks in flight, so the database has to outlive far
+# more than a process restart. Litestream streams every transaction to a replica
+# as it happens, which is the right shape for SQLite: it understands the
+# write-ahead log rather than copying files out from under it.
+#
+# That last point is not academic here. In normal operation the WAL holds
+# megabytes that the main .sqlite file does not yet contain — a backup script
+# that copied data/manpower.sqlite alone would faithfully save an almost empty
+# database. Litestream reads both.
+
+dbs:
+  - path: /workspace/data/manpower.sqlite
+    replicas:
+      # Local replica. This survives an accidental delete, a bad migration or a
+      # corrupted database — but it lives on the same disk, so it does NOT
+      # survive losing the machine.
+      - type: file
+        path: /var/backups/man-power/local
+
+      # Off-machine replica. This is the one that survives losing the host, and
+      # it is the only real backup. Uncomment and supply a bucket to enable it;
+      # credentials come from the environment (see deploy/litestream.service),
+      # so nothing secret is committed.
+      #
+      # - type: s3
+      #   bucket: $LITESTREAM_BUCKET
+      #   path:   man-power/manpower.sqlite
+      #   region: $LITESTREAM_REGION
+      #   endpoint: $LITESTREAM_ENDPOINT     # set for Cloudflare R2 or Backblaze

@@ -1,0 +1,44 @@
+# Streams the Man Power database to its replicas, continuously.
+#
+# Runs as its own unit rather than inside the app: backups should keep working
+# while the app is being restarted, redeployed or debugged.
+
+[Unit]
+Description=Litestream — continuous backup of the Man Power database
+Documentation=https://litestream.io/
+After=network-online.target man-power.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+
+# Credentials for the off-machine replica, if one is configured. Create this
+# file with mode 0600 and put LITESTREAM_BUCKET, LITESTREAM_REGION,
+# LITESTREAM_ACCESS_KEY_ID and LITESTREAM_SECRET_ACCESS_KEY in it.
+EnvironmentFile=-/etc/man-power/litestream.env
+
+ExecStart=/usr/local/bin/litestream replicate -config /etc/litestream.yml
+
+Restart=always
+RestartSec=5
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+# Litestream keeps its own state alongside the database, so it needs write
+# access there as well as to the replica directory.
+ReadWritePaths=/workspace/data /var/backups/man-power
+ProtectKernelTunables=true
+ProtectKernelModules=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=litestream
+
+[Install]
+WantedBy=multi-user.target
