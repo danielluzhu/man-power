@@ -12,7 +12,7 @@ it.
 **→ [Time a journey yourself](https://danielluzhu.github.io/man-power/)** — the
 project site runs the real routing engine in your browser, no server involved.
 
-![New York to London by way of Greenland — 23 days, 11 hours, across 33 legs](docs/screenshot.png)
+![New York to London by way of Greenland — 23 days, 11 hours, across 33 legs, on a topographic globe](docs/screenshot.png)
 
 ---
 
