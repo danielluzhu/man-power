@@ -7,6 +7,9 @@ node_modules/
 tmp/
 
 # Upstream source data — regenerated on demand by scripts/build-*.js
+# Litestream's own bookkeeping, kept beside the database it replicates
+data/.*-litestream/
+
 data/ne_50m_land.json
 data/cities15000.txt
 data/countryInfo.txt
