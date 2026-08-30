@@ -169,13 +169,55 @@ surface — which also lets 12.4 MB of grid gzip down to 2.95 MB.
 
 The client draws its own orthographic globe on a canvas, with no tile server
 involved. A flat projection would bend the Atlantic crossing into what looks
-like a detour and tear any antimeridian route in half; on a sphere a great
-circle is simply the shortest visible arc.
+like a detour and tear any antimeridian route in half.
 
-Coastline rings that straddle the limb are clipped with Sutherland-Hodgman in
-3D against the view plane, then stitched back along the horizon circle between
-successive exit and entry points. (Without that arc the clip closes continents
-off with a straight chord, and Africa grows a flat edge.)
+It is a **topographic** map: hypsometric tint for height, relief shading for
+shape, so you can see a route thread between mountains rather than over them.
+The palette is deliberately not natural-earth — it starts at very nearly the
+flat green the globe used before, so low ground looks unchanged, and only
+brightens as it climbs, through olive and tan to snow-bleached grey. Height
+reads as luminance, which leaves amber and cyan free to mean *run* and *swim*
+on top of it.
+
+The sphere is rasterised per pixel: each pixel inside the disc is projected back
+to a latitude and longitude and sampled bilinearly from an equirectangular
+relief image. Nearest-neighbour sampling turns a coastline into visible 20 km
+blocks the moment you zoom in on a strait.
+
+The app fetches a 982 KB PNG baked by `build:texture`. The site already carries
+the elevation grid for routing, so it builds the same texture in the browser and
+downloads nothing extra — both call `buildTerrainTexture`, so they cannot drift.
+`src/png.js` is a small encoder written rather than depended on, since the
+project has no other image toolchain.
+
+Before the texture arrives, and on the sign-in screen, it falls back to filled
+coastline polygons. Those rings straddle the limb, so they are clipped with
+Sutherland-Hodgman in 3D against the view plane and stitched back along the
+horizon circle between successive exit and entry points. (Without that arc the
+clip closes continents off with a straight chord, and Africa grows a flat edge.)
+
+### Steering it
+
+**Drag** to turn the globe, **scroll** or pinch to zoom, **double-click** to
+centre on a point and close in. Longitude turns faster near the poles, where
+circles of latitude are short — without that the globe feels stuck up there.
+
+Choosing a route **frames it automatically**: centred on the mean of the route's
+points (not the midpoint of its endpoints, which for a route arcing through
+Greenland is out in the ocean) and zoomed so the furthest point still sits
+inside the disc. Taking hold of the globe yourself stops it re-aiming, and
+offers a button to hand control back.
+
+Zoom is capped at 9×. A texel is about 20 km, and past that the view would be
+magnifying detail that was never in the data.
+
+Two things had to be fixed to make this usable, both worth knowing if you touch
+the renderer. Sizing the raster buffer to the *sphere* asks for an 81-megapixel
+canvas once zoomed in on a short route, and hangs the page — it is sized to the
+**viewport**, which is bounded however far you zoom. And repainting a
+full-window canvas every frame, to animate a courier that advances a few microns
+a second, spends most of the frame budget on compositing — the globe repaints
+only while moving or when something asks it to.
 
 ## The project site
 
@@ -240,6 +282,9 @@ bun run test:browser       # drives the real app in headless Chromium
 bun run test:site          # rebuilds docs/ and drives the project site
 ```
 
+The browser and site suites also assert the globe behaves: that choosing a route
+reframes the camera, and that dragging actually turns it.
+
 `test:site` exists for one specific failure: the site runs *copies* of the
 engine made by `build:site`, so editing the router and forgetting to rebuild
 leaves the published page quietly answering with the old engine while every
@@ -259,6 +304,8 @@ src/records.js         world-record ladders and the pace curve
 src/geo.js             plans a route, then measures and times it
 src/router.js          least-time A* pathfinding over the world grid
 src/terrain.js         gradient and altitude physics, elevation grid
+src/terrain-texture.js shaded-relief map, shared by the app and the site
+src/png.js             minimal PNG encoder, for baking the globe texture
 src/sphere.js          pure great-circle math, shared with the browser
 src/db.js              SQLite storage
 public/globe.js        orthographic globe renderer
@@ -278,7 +325,8 @@ and the clock beside it are computed by the same code that set the arrival time.
 - Cities: [GeoNames](https://www.geonames.org/) `cities15000` — 34,125 cities
   over 15,000 people (CC BY 4.0).
 - Elevation: [ETOPO1](https://www.ncei.noaa.gov/products/etopo-global-relief-model)
-  (NOAA), fetched via ERDDAP at exactly the grid's cell centres.
+  (NOAA), fetched via ERDDAP at exactly the grid's cell centres — used both for
+  routing and for shading the globe.
 
 ## Caveats, cheerfully admitted
 
