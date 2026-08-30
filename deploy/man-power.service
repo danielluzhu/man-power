@@ -1,0 +1,49 @@
+# Man Power — messaging at the speed of the fastest human alive.
+#
+# Install with deploy/install.sh, which copies this into
+# /etc/systemd/system/ and enables it. See README for details.
+
+[Unit]
+Description=Man Power — messaging at human speed
+Documentation=https://github.com/danielluzhu/man-power
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/workspace
+Environment=PORT=4321
+Environment=HOME=/home/ubuntu
+ExecStart=/home/ubuntu/.bun/bin/bun run server.js
+
+# Bun needs a moment to load the land mask and gazetteer before it listens.
+TimeoutStartSec=30
+Restart=always
+RestartSec=2
+
+# Give up only if it fails repeatedly in a short window, so a genuine crash
+# loop surfaces instead of being restarted forever.
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+# The service reads its datasets and writes exactly one SQLite database, so
+# everything else on the filesystem can stay read-only to it.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/workspace/data
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=man-power
+
+[Install]
+WantedBy=multi-user.target
