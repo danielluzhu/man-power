@@ -14,6 +14,7 @@ import { RoutingGrid } from "./src/router.js";
 import { monitorClock, describeClock } from "./src/clock.js";
 import { startDelivery, journalChannel } from "./src/delivery.js";
 import { loadVapid, pushChannel } from "./src/push.js";
+import { rateLimiter, clientAddress, tooMany } from "./src/ratelimit.js";
 import * as store from "./src/db.js";
 
 const PORT = Number(process.env.PORT) || 4321;
@@ -58,6 +59,38 @@ const clock = monitorClock({
     else console.log(line);
   },
 });
+
+/* --------------------------------------------------------- rate limits --- */
+
+/**
+ * Ceilings, chosen to be invisible to anyone using the app and firmly in the
+ * way of anyone scripting it.
+ *
+ * Registration is per address and deliberately not tight: an office, a campus
+ * or a phone network puts a great many legitimate people behind one IP, and a
+ * limit low enough to be interesting to an attacker is low enough to lock out a
+ * classroom. Twenty an hour stops bulk enrolment without doing that.
+ *
+ * Sending is the most generous relative to real use — nobody dispatches twenty
+ * couriers an hour, and the ones who try are not writing letters.
+ *
+ * Every ceiling is overridable, so they can be tightened under abuse without a
+ * deploy.
+ */
+const ceiling = (name, fallback) => Number(process.env[`LIMIT_${name.toUpperCase()}`]) || fallback;
+
+const LIMITS = {
+  register: rateLimiter({ limit: ceiling("register", 20), windowMs: 60 * 60 * 1000, name: "register" }),
+  login:    rateLimiter({ limit: ceiling("login", 10),    windowMs: 15 * 60 * 1000, name: "login" }),
+  send:     rateLimiter({ limit: ceiling("send", 20),     windowMs: 60 * 60 * 1000, name: "send" }),
+  preview:  rateLimiter({ limit: ceiling("preview", 60),  windowMs: 60 * 1000,      name: "preview" }),
+  search:   rateLimiter({ limit: ceiling("search", 120),  windowMs: 60 * 1000,      name: "search" }),
+};
+
+// The app sits behind the host's proxy, so X-Forwarded-For carries the real
+// client. Set TRUST_PROXY=0 when running it directly, or the header becomes a
+// way to invent a new address per request and walk past every limit above.
+const TRUST_PROXY = process.env.TRUST_PROXY !== "0";
 
 /* ------------------------------------------------------------- helpers --- */
 
@@ -177,7 +210,11 @@ function resolveDestination(payload) {
 /* -------------------------------------------------------------- routes --- */
 
 const routes = {
-  "POST /api/register": async (req) => {
+  "POST /api/register": async (req, server) => {
+    const from = clientAddress(req, server, { trustProxy: TRUST_PROXY });
+    const allowed = LIMITS.register.check(from);
+    if (!allowed.ok) return tooMany(allowed, "Too many couriers enlisted from here. Try again later.");
+
     const { handle, password, city } = await req.json();
     if (!handle || !/^[a-zA-Z0-9_-]{2,24}$/.test(handle))
       return fail("Handle must be 2–24 characters: letters, numbers, dashes or underscores");
@@ -194,11 +231,20 @@ const routes = {
     return json({ user: store.publicUser(user) }, 200, { "set-cookie": sessionCookie(token) });
   },
 
-  "POST /api/login": async (req) => {
+  "POST /api/login": async (req, server) => {
+    const from = clientAddress(req, server, { trustProxy: TRUST_PROXY });
+    const allowed = LIMITS.login.check(from);
+    if (!allowed.ok) return tooMany(allowed, "Too many sign-in attempts. Try again shortly.");
+
     const { handle, password } = await req.json();
     const user = store.findUserByHandle(db, handle || "");
     if (!user || !(await store.verifyPassword(user, password || "")))
       return fail("Wrong handle or password", 401);
+
+    // Only failures should count against the limit, or someone signing in on
+    // several devices spends their budget on nothing.
+    LIMITS.login.forgive(from);
+
     const token = store.createSession(db, user.id);
     return json({ user: store.publicUser(user) }, 200, { "set-cookie": sessionCookie(token) });
   },
@@ -229,7 +275,10 @@ const routes = {
     return json({ user: store.publicUser(updated) });
   },
 
-  "GET /api/cities": (req) => {
+  "GET /api/cities": (req, server) => {
+    const allowed = LIMITS.search.check(clientAddress(req, server, { trustProxy: TRUST_PROXY }));
+    if (!allowed.ok) return tooMany(allowed, "Slow down a moment.");
+
     const q = new URL(req.url).searchParams.get("q") || "";
     return json({ results: searchCities(q) });
   },
@@ -294,6 +343,11 @@ const routes = {
   "POST /api/preview": async (req) => {
     const user = currentUser(req);
     if (!user) return fail("Not signed in", 401);
+
+    // Quoting runs the pathfinder, which is the most expensive thing here.
+    const allowed = LIMITS.preview.check(`user:${user.id}`);
+    if (!allowed.ok) return tooMany(allowed, "Too many routes at once. Give it a second.");
+
     const payload = await req.json();
     const dest = resolveDestination(payload);
     if (dest.error) return fail(dest.error);
@@ -309,6 +363,12 @@ const routes = {
   "POST /api/messages": async (req) => {
     const user = currentUser(req);
     if (!user) return fail("Not signed in", 401);
+
+    const allowed = LIMITS.send.check(`user:${user.id}`);
+    if (!allowed.ok) {
+      return tooMany(allowed, "You have dispatched a lot of couriers. Let some of them arrive first.");
+    }
+
     const { toHandle, body } = await req.json();
 
     const text = String(body || "").trim();
@@ -369,13 +429,14 @@ const server = Bun.serve({
   port: PORT,
   idleTimeout: 30,
 
-  async fetch(req) {
+  // Bun hands the server in, which is how a handler reaches the peer address.
+  async fetch(req, server) {
     const url = new URL(req.url);
     const key = `${req.method} ${url.pathname}`;
 
     if (routes[key]) {
       try {
-        return await routes[key](req);
+        return await routes[key](req, server);
       } catch (err) {
         console.error(key, err);
         return fail("Something went wrong on the server", 500);
