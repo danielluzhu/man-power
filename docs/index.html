@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Man Power — messaging at the speed of the fastest human alive</title>
+<meta name="description" content="Carrier pigeon messaging, except the courier is the fastest human alive. Work out how long a message takes when someone has to run and swim it — at world-record pace the whole way.">
+
+<meta property="og:title" content="Man Power — messaging at human speed">
+<meta property="og:description" content="Your message is not transmitted. It is carried — run across every landmass, swum across every sea, at world-record pace.">
+<meta property="og:type" content="website">
+<meta name="theme-color" content="#070d15">
+
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏃</text></svg>">
+<link rel="stylesheet" href="./style.css">
+</head>
+<body>
+
+<!-- ─────────────────────────────── hero ─────────────────────────────── -->
+<header class="hero">
+  <div class="hero__inner">
+    <h1 class="wordmark">MAN<span>POWER</span></h1>
+    <p class="lede">
+      Carrier-pigeon messaging, except the courier is the fastest human alive.
+    </p>
+    <p class="sub">
+      Your message is not transmitted. It is <em>carried</em> — run across every
+      landmass, swum across every sea, at world-record pace the whole way. It
+      arrives when a human could have arrived, and not one second sooner.
+    </p>
+    <div class="hero__actions">
+      <a class="btn btn--primary" href="#calculator">Time a journey</a>
+      <a class="btn" href="https://github.com/danielluzhu/man-power">Source on GitHub</a>
+    </div>
+  </div>
+  <div class="hero__fade"></div>
+</header>
+
+<!-- ──────────────────────────── calculator ──────────────────────────── -->
+<section class="calc" id="calculator">
+  <div class="calc__intro">
+    <h2>How long would it take on foot?</h2>
+    <p>
+      This runs the real routing engine — the same world-record ladder, the same
+      coastline data, the same great-circle leg splitting the app uses. Nothing
+      is precomputed and there is no server involved; your browser is doing the
+      whole thing.
+    </p>
+  </div>
+
+  <div class="calc__grid">
+    <div class="calc__panel">
+      <div class="pickers">
+        <div class="field">
+          <span class="field__label">From</span>
+          <div class="citypick" data-role="from">
+            <input class="citypick__input" placeholder="Search a city…" autocomplete="off">
+            <ul class="citypick__results" hidden></ul>
+          </div>
+        </div>
+        <button class="swap" id="swap" title="Swap ends" aria-label="Swap origin and destination">⇅</button>
+        <div class="field">
+          <span class="field__label">To</span>
+          <div class="citypick" data-role="to">
+            <input class="citypick__input" placeholder="Search a city…" autocomplete="off">
+            <ul class="citypick__results" hidden></ul>
+          </div>
+        </div>
+      </div>
+
+      <div class="presets" id="presets"></div>
+
+      <div class="result" id="result">
+        <p class="result__loading">Loading coastlines…</p>
+      </div>
+    </div>
+
+    <div class="calc__stage">
+      <canvas id="globe"></canvas>
+      <div class="legend">
+        <span><i class="swatch swatch--run"></i>run</span>
+        <span><i class="swatch swatch--swim"></i>swim</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ───────────────────────────── how it works ───────────────────────── -->
+<section class="how">
+  <h2>How a journey is timed</h2>
+  <ol class="steps">
+    <li>
+      <span class="steps__n">1</span>
+      <h3>Draw the great circle</h3>
+      <p>
+        The shortest path over a sphere between the two points, sampled every
+        half-kilometre to ten kilometres depending on its length.
+      </p>
+    </li>
+    <li>
+      <span class="steps__n">2</span>
+      <h3>Split land from water</h3>
+      <p>
+        Each sample is tested against a coastline bitmap rasterized from Natural
+        Earth data. Runs of the same surface become legs, and every crossing is
+        bisected down to about fifty metres so it lands on the real coast.
+      </p>
+    </li>
+    <li>
+      <span class="steps__n">3</span>
+      <h3>Time each leg on its own record</h3>
+      <p>
+        A leg is timed against the world record for <em>its</em> distance, not
+        the journey's. So a six-hundred-metre river crossing is swum at 800 m
+        pace while the four thousand kilometres either side are run at marathon
+        pace.
+      </p>
+    </li>
+  </ol>
+</section>
+
+<!-- ───────────────────────────── the pace book ──────────────────────── -->
+<section class="records">
+  <h2>The pace book</h2>
+  <p class="records__note">
+    Records are applied as <strong>pace</strong>, not as a flat duration. A 400 m
+    hop does not take Josh Kerr's full 3:42.66 — it takes 400 m <em>at</em> his
+    mile pace. That is the only reading that stays coherent at the long end,
+    where a marathon record has to cover thousands of kilometres. Between two
+    records, pace is interpolated along the endurance curve.
+  </p>
+  <div class="records__tables" id="records"></div>
+
+  <aside class="aside">
+    <h3>Three records deliberately left out</h3>
+    <p>
+      The 2 mile, 10 mile and 30 km bests are each <em>slower in pace terms</em>
+      than their neighbours on the ladder — a sub-two-hour marathon outpaces the
+      standing 30 km best. Including them would make the curve non-monotonic,
+      which would let a longer journey arrive before a shorter one along the same
+      route. They are left off, and the app refuses to start if the ladder ever
+      stops falling.
+    </p>
+  </aside>
+</section>
+
+<!-- ────────────────────────────── run it ────────────────────────────── -->
+<section class="run">
+  <h2>Run the whole thing</h2>
+  <p>
+    The site above is only the calculator. The app itself is a small Bun server
+    with SQLite behind it — handles, inboxes, sealed messages and a live globe
+    tracking every courier in flight.
+  </p>
+
+<pre><code><span class="c"># clone and start</span>
+git clone https://github.com/danielluzhu/man-power.git
+cd man-power &amp;&amp; bun install
+bun run server.js            <span class="c"># http://localhost:4321</span>
+
+<span class="c"># or install it as a systemd service</span>
+sudo deploy/install.sh       <span class="c"># restarts on failure, starts on boot</span></code></pre>
+
+  <p class="run__note">
+    You need at least two couriers for anything to happen — enlist a second one
+    in a private window and write to yourself the long way round.
+  </p>
+
+  <figure class="shot">
+    <img src="./screenshot.png" alt="The Man Power app: a courier running from Eldoret to London, tracked on a globe." loading="lazy">
+    <figcaption>A message from Eldoret to London — 21 days, 5 hours, across nine legs.</figcaption>
+  </figure>
+</section>
+
+<footer class="foot">
+  <p>
+    Coastlines from <a href="https://www.naturalearthdata.com/">Natural Earth</a>
+    (public domain). Cities from <a href="https://www.geonames.org/">GeoNames</a>
+    (CC BY 4.0).
+  </p>
+  <p class="foot__caveat">
+    The courier runs great circles, so they go straight over the Himalayas and
+    through the Darién Gap without slowing down. They do not sleep, eat, or wait
+    for weather. Ocean currents do not exist. And they hold marathon world-record
+    pace for six thousand kilometres, which is the whole joke.
+  </p>
+  <p><a href="https://github.com/danielluzhu/man-power">danielluzhu/man-power</a></p>
+</footer>
+
+<script type="module" src="./demo.js"></script>
+</body>
+</html>
