@@ -11,6 +11,7 @@ import { LandMask, buildRoute, positionAt } from "./src/geo.js";
 import { RUN_LADDER, SWIM_LADDER } from "./src/records.js";
 import { Elevation } from "./src/terrain.js";
 import { RoutingGrid } from "./src/router.js";
+import { monitorClock, describeClock } from "./src/clock.js";
 import * as store from "./src/db.js";
 
 const PORT = Number(process.env.PORT) || 4321;
@@ -38,6 +39,18 @@ const fold = (str) => str.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowe
 const folded = cities.map((c) => fold(c[0]));
 
 console.log(`Land mask ${mask.width}×${mask.height} · elevation ${elevation.width}×${elevation.height} · routing ${grid.width}×${grid.height} · ${cities.length} cities`);
+
+const startedAt = Date.now();
+
+// Delivery times are computed once and stored, so a wrong clock at send time is
+// baked in permanently. Watch it rather than trust it.
+const clock = monitorClock({
+  onResult: (result) => {
+    const line = describeClock(result);
+    if (result.ok === false) console.error(line);
+    else console.log(line);
+  },
+});
 
 /* ------------------------------------------------------------- helpers --- */
 
@@ -215,6 +228,32 @@ const routes = {
   },
 
   "GET /api/records": () => json({ running: RUN_LADDER, swimming: SWIM_LADDER }),
+
+  /**
+   * Health, for monitoring. Reports the clock explicitly: a service whose whole
+   * promise is a timer should say out loud whether it still knows the time.
+   */
+  "GET /api/health": () => {
+    const counts = db
+      .query(
+        `SELECT COUNT(*) AS total,
+                SUM(CASE WHEN arrives_at > ? THEN 1 ELSE 0 END) AS inFlight
+           FROM messages`
+      )
+      .get(Date.now());
+
+    const healthy = clock.last.ok !== false;
+    return json(
+      {
+        ok: healthy,
+        uptimeSeconds: Math.round((Date.now() - startedAt) / 1000),
+        clock: clock.last,
+        messages: { total: counts.total, inFlight: counts.inFlight ?? 0 },
+        couriers: db.query("SELECT COUNT(*) AS n FROM users").get().n,
+      },
+      healthy ? 200 : 503
+    );
+  },
 
   /** Quote a journey without sending anything. */
   "POST /api/preview": async (req) => {
