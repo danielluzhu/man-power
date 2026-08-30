@@ -45,26 +45,58 @@ export function interpolate(lat1, lon1, lat2, lon2, f) {
   };
 }
 
+/** Cumulative distance along a polyline, in metres. */
+export function cumulative(points) {
+  const out = new Float64Array(points.length);
+  for (let i = 1; i < points.length; i++) {
+    out[i] = out[i - 1] + haversine(points[i - 1].lat, points[i - 1].lon, points[i].lat, points[i].lon);
+  }
+  return out;
+}
+
+/** The point a fraction `f` of the way along a polyline, by distance. */
+export function pointAlong(points, f) {
+  if (points.length === 1) return { ...points[0] };
+  const marks = cumulative(points);
+  const total = marks[marks.length - 1];
+  if (total === 0) return { ...points[0] };
+
+  const target = Math.max(0, Math.min(1, f)) * total;
+  let i = 1;
+  while (i < marks.length - 1 && marks[i] < target) i++;
+
+  const span = marks[i] - marks[i - 1];
+  const within = span > 0 ? (target - marks[i - 1]) / span : 0;
+  const a = points[i - 1], b = points[i];
+  return interpolate(a.lat, a.lon, b.lat, b.lon, within);
+}
+
 /**
  * Where is the courier after `elapsed` seconds? Returns their position, the leg
  * they are on and overall progress, or null once they have arrived.
+ *
+ * The courier follows the planned path, so position is found by walking the
+ * leg's own polyline rather than a great circle between the endpoints. Within a
+ * single leg the pace is treated as even, which smooths over the fact that the
+ * far side of a mountain is run faster than the near side.
  */
-export function positionAt(route, elapsed, from, to) {
+export function positionAt(route, elapsed) {
   if (!route?.legs?.length) return null;
   if (elapsed >= route.totalSeconds) return null;
   const t = Math.max(0, elapsed);
 
   for (const leg of route.legs) {
     if (t > leg.endSeconds) continue;
-    const withinLeg = leg.seconds > 0 ? (t - leg.startSeconds) / leg.seconds : 0;
-    const f = leg.startF + withinLeg * (leg.endF - leg.startF);
-    const p = interpolate(from.lat, from.lon, to.lat, to.lon, f);
+    const within = leg.seconds > 0 ? (t - leg.startSeconds) / leg.seconds : 0;
+    const p = pointAlong(leg.points, within);
+    const fraction = leg.startF + within * (leg.endF - leg.startF);
+
     return {
       ...p,
       mode: leg.mode,
-      fraction: f,
-      metresCovered: route.totalMetres * f,
-      metresRemaining: route.totalMetres * (1 - f),
+      fraction,
+      metresCovered: route.totalMetres * fraction,
+      metresRemaining: route.totalMetres * (1 - fraction),
       secondsRemaining: route.totalSeconds - t,
     };
   }
