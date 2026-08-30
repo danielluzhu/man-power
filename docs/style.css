@@ -257,7 +257,22 @@ input:focus { border-color: #3d5f8c; box-shadow: 0 0 0 3px rgba(56,132,248,.12);
   display: flex; gap: 1rem; font: 11px var(--mono); color: var(--ink-faint);
 }
 .legend span { display: flex; align-items: center; gap: .35rem; }
+.legend__hint { color: var(--ink-faint); padding-left: .5rem; }
 .split { row-gap: .3rem; }
+
+.globe-reset {
+  position: absolute; left: 1rem; top: 1rem;
+  background: rgba(9,16,26,.92);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--line-bright);
+  border-radius: 99px;
+  color: var(--ink-dim);
+  font: 11.5px var(--mono);
+  padding: .4rem .85rem;
+  cursor: pointer;
+  transition: color .15s, border-color .15s;
+}
+.globe-reset:hover { color: var(--run); border-color: var(--run); }
 .swatch { width: 14px; height: 2.5px; border-radius: 2px; display: inline-block; }
 .swatch--run  { background: var(--run); }
 .swatch--swim { background: var(--swim); }

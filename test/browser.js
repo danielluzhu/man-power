@@ -122,6 +122,29 @@ try {
   check("recipient still sees the envelope", received.charCount > 0 && !received.arrived);
   check("recipient can watch the courier", !!received.courier, received.courier?.mode);
 
+  // The globe should reframe itself on the route, and turn under the cursor.
+  const framed = await page.evaluate(() => window.__globe?.());
+  check("the globe zooms in on the new route", framed && framed.zoom > 1.2,
+        framed ? `zoom ${framed.zoom}` : "no camera");
+
+  await wait(1500); // let the camera settle before measuring the drag
+  const settled = await page.evaluate(() => window.__globe?.());
+  const box = await page.$eval("#globe", (el) => {
+    const r = el.getBoundingClientRect();
+    return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+  });
+  await page.mouse.move(box.x, box.y);
+  await page.mouse.down();
+  for (let i = 1; i <= 10; i++) { await page.mouse.move(box.x - i * 10, box.y + i * 3); await wait(16); }
+  await page.mouse.up();
+  await wait(400);
+
+  const dragged = await page.evaluate(() => window.__globe?.());
+  check("dragging turns the globe",
+        Math.abs(dragged.lon - settled.lon) > 1,
+        `${settled.lon}° → ${dragged.lon}°`);
+  check("taking hold offers a way back", await page.$eval("#globe-reset", (el) => !el.hidden));
+
   await page.click('.nav__item[data-view="records"]');
   await wait(900);
   const records = await page.$eval("#records-tables", (el) => el.innerText);

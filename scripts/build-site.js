@@ -16,6 +16,7 @@ const LIB_SOURCES = {
   "sphere.js": "src/sphere.js",
   "geo.js": "src/geo.js",
   "terrain.js": "src/terrain.js",
+  "terrain-texture.js": "src/terrain-texture.js",
   "router.js": "src/router.js",
   "globe.js": "public/globe.js",
 };

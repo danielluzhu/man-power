@@ -92,6 +92,24 @@ try {
   check("a route with no detour says so plainly",
         /Straight there/.test(flat) || /faster than going straight/.test(flat));
 
+  // The globe: topographic, reframed on the route, and turnable.
+  const camera = await page.evaluate(() => window.__globe?.());
+  check("the globe is textured with terrain", camera?.textured === true);
+  check("the globe framed the route", camera && camera.zoom > 1.05, `zoom ${camera?.zoom}`);
+
+  const box = await page.$eval("#globe", (el) => {
+    const r = el.getBoundingClientRect();
+    return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+  });
+  await page.mouse.move(box.x, box.y);
+  await page.mouse.down();
+  for (let i = 1; i <= 10; i++) { await page.mouse.move(box.x - i * 12, box.y); await wait(16); }
+  await page.mouse.up();
+  await wait(400);
+  const turned = await page.evaluate(() => window.__globe?.());
+  check("dragging turns the globe", Math.abs(turned.lon - camera.lon) > 1,
+        `${camera.lon}° → ${turned.lon}°`);
+
   const records = await page.$eval("#records", (el) => el.innerText);
   check("the pace book renders", /Josh Kerr/.test(records) && /Sun Yang/.test(records));
 

@@ -11,7 +11,7 @@
  *      UI is built to show an envelope rather than to hide text it was given.
  */
 
-import { Globe, loadWorld } from "/globe.js";
+import { Globe, loadWorld, loadTerrain } from "/globe.js";
 import { positionAt } from "/sphere.js";
 
 /* ─────────────────────────────── plumbing ─────────────────────────────── */
@@ -218,33 +218,29 @@ const state = {
   quote: null,      // dispatch preview
   registerCity: null,
   moveCity: null,
+  freeLook: false,   // the viewer has taken the globe over; stop re-aiming it
 };
 
 let globe, authGlobe, world;
 
 /* ───────────────────────────────── globe ──────────────────────────────── */
 
-/** Ease the globe's centre toward a target instead of snapping to it. */
-const spin = { lat: 20, lon: 0, targetLat: 20, targetLon: 0 };
-
-function aimGlobe(lat, lon) {
-  spin.targetLat = lat;
-  // Take the short way round rather than unwinding the long way.
-  let delta = lon - spin.lon;
-  while (delta > 180) delta -= 360;
-  while (delta < -180) delta += 360;
-  spin.targetLon = spin.lon + delta;
+/**
+ * Point the globe at a route and zoom so the whole thing fits. The globe works
+ * out the framing; this only decides when to re-aim it.
+ *
+ * Skipped once the viewer has taken hold of the globe themselves — being yanked
+ * somewhere else mid-drag is worse than a stale view.
+ */
+function frame(msg) {
+  if (!globe || state.freeLook) return;
+  const shot = globe.frameRoute(msg?.route, msg?.from, msg?.to);
+  if (shot) globe.lookAt(shot.lat, shot.lon, shot.zoom);
 }
 
-function midpoint(a, b) {
-  const toRad = Math.PI / 180;
-  const x = (Math.cos(a.lat * toRad) * Math.cos(a.lon * toRad) + Math.cos(b.lat * toRad) * Math.cos(b.lon * toRad)) / 2;
-  const y = (Math.cos(a.lat * toRad) * Math.sin(a.lon * toRad) + Math.cos(b.lat * toRad) * Math.sin(b.lon * toRad)) / 2;
-  const z = (Math.sin(a.lat * toRad) + Math.sin(b.lat * toRad)) / 2;
-  return {
-    lat: Math.atan2(z, Math.hypot(x, y)) / toRad,
-    lon: Math.atan2(y, x) / toRad,
-  };
+function aimGlobe(lat, lon, zoom) {
+  if (!globe || state.freeLook) return;
+  globe.lookAt(lat, lon, zoom);
 }
 
 /** Live courier position for a message, from its route and the wall clock. */
@@ -255,9 +251,6 @@ function courierNow(msg) {
 
 function paintGlobe() {
   if (!globe) return;
-  spin.lat += (spin.targetLat - spin.lat) * 0.08;
-  spin.lon += (spin.targetLon - spin.lon) * 0.08;
-  globe.setCenter(spin.lat, spin.lon);
 
   const msg = state.selected || state.quote;
   globe.render({
@@ -268,8 +261,34 @@ function paintGlobe() {
   });
 }
 
+/**
+ * Ask for a repaint. Cheap to call — the loop coalesces requests into the next
+ * frame.
+ */
+function invalidateGlobe() { globeDirty = true; }
+
+let globeDirty = true;
+
+/**
+ * The globe repaints when there is a reason to: while the camera is moving,
+ * while the viewer is dragging, or when something asks it to.
+ *
+ * It used to repaint every frame regardless, which meant continuously
+ * compositing a full-size canvas to animate a courier that advances a few
+ * microns a second on a three-week journey.
+ */
 function startGlobeLoop() {
-  const tick = () => { paintGlobe(); requestAnimationFrame(tick); };
+  const tick = () => {
+    if (globe) {
+      const moving = globe.moving;
+      globe.step();
+      if (moving || globeDirty) {
+        globeDirty = false;
+        paintGlobe();
+      }
+    }
+    requestAnimationFrame(tick);
+  };
   requestAnimationFrame(tick);
 }
 
@@ -535,8 +554,9 @@ async function selectMessage(id) {
   const { message } = await api(`/api/messages/${id}`);
   state.selected = message;
   state.quote = null;
-  const mid = midpoint(message.from, message.to);
-  aimGlobe(mid.lat, mid.lon);
+  state.freeLook = false;
+  frame(message);
+  invalidateGlobe();
   renderQuote();
   renderLists();
   renderHud();
@@ -561,8 +581,9 @@ async function updateQuote() {
     state.quote = preview;
     state.selected = null;
     $("#hud").hidden = true;
-    const mid = midpoint(preview.from, preview.to);
-    aimGlobe(mid.lat, mid.lon);
+    state.freeLook = false;
+    frame(preview);
+    invalidateGlobe();
     renderQuote();
     renderLists();
     $("#send").disabled = !$("#body").value.trim();
@@ -658,11 +679,22 @@ function wireApp() {
     if (card) selectMessage(Number(card.dataset.message)).catch((ex) => toast(ex.message));
   });
 
+  $("#globe-reset").addEventListener("click", () => {
+    state.freeLook = false;
+    $("#globe-reset").hidden = true;
+    const msg = state.selected || state.quote;
+    if (msg) frame(msg);
+    else if (state.me) aimGlobe(state.me.lat, state.me.lon, 1.6);
+    invalidateGlobe();
+  });
+
   $("[data-hud-close]").addEventListener("click", () => {
     state.selected = null;
     $("#hud").hidden = true;
     renderLists();
-    if (state.me) aimGlobe(state.me.lat, state.me.lon);
+    invalidateGlobe();
+    state.freeLook = false;
+    if (state.me) aimGlobe(state.me.lat, state.me.lon, 1.6);
   });
 
   $("#logout").addEventListener("click", async () => {
@@ -685,7 +717,8 @@ function wireApp() {
     if (dialog.returnValue !== "ok" || !state.moveCity) return;
     await post("/api/me/location", { city: state.moveCity });
     await refresh();
-    aimGlobe(state.me.lat, state.me.lon);
+    state.freeLook = false;
+    aimGlobe(state.me.lat, state.me.lon, 1.6);
     toast(`You are now standing in ${state.me.city}.`);
     if ($("#recipient").value) updateQuote();
   });
@@ -698,17 +731,36 @@ async function enterApp() {
   $("#app").hidden = false;
 
   globe = new Globe($("#globe"), world);
-  const resize = () => { globe.resize(); paintGlobe(); };
+  globe.enableInteraction({
+    // Any deliberate move hands control over; the app stops re-aiming until
+    // the next route is chosen.
+    onInteract: () => { state.freeLook = true; $("#globe-reset").hidden = false; invalidateGlobe(); },
+  });
+
+  const resize = () => { globe.resize(); invalidateGlobe(); };
   window.addEventListener("resize", resize);
   resize();
 
   await refresh();
-  aimGlobe(state.me.lat, state.me.lon);
-  spin.lat = state.me.lat;
-  spin.lon = state.me.lon;
+  globe.jumpTo(state.me.lat, state.me.lon, 1.6);
+
+  // A read-only window onto the camera, so the browser tests can assert that
+  // selecting a route really reframes the globe and that dragging really turns
+  // it. Nothing in the app reads these.
+  window.__globe = () => ({
+    lat: +globe.center.lat.toFixed(3),
+    lon: +globe.center.lon.toFixed(3),
+    zoom: +globe.zoom.toFixed(3),
+    textured: !!globe.texture,
+  });
 
   startGlobeLoop();
-  setInterval(() => { tickCards(); tickHud(); }, 1000);
+
+  // The terrain is a megabyte, so the globe paints flat first and sharpens
+  // into topography when it arrives.
+  loadTerrain().then((image) => { if (image && globe) { globe.setTexture(image); invalidateGlobe(); } });
+  // Once a second is ample for a courier crossing an ocean on foot.
+  setInterval(() => { tickCards(); tickHud(); invalidateGlobe(); }, 1000);
   setInterval(() => refresh().catch(() => {}), 20000);
 }
 
@@ -716,9 +768,16 @@ function startAuthGlobe() {
   const canvas = $("#auth-globe");
   authGlobe = new Globe(canvas, world);
   authGlobe.zoom = 1.35;
+  // It never stops turning, so it never gets to use the cached full-resolution
+  // raster. Coarser pixels keep a continuously spinning globe cheap.
+  authGlobe.motionQuality = 3;
+  authGlobe.maxDpr = 1;
+
   const resize = () => authGlobe.resize();
   window.addEventListener("resize", resize);
   resize();
+
+  loadTerrain().then((image) => { if (image && authGlobe) authGlobe.setTexture(image); });
 
   let lon = 0;
   const tick = () => {

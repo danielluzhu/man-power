@@ -10,6 +10,7 @@
 import { LandMask, buildRoute } from "./lib/geo.js";
 import { RUN_LADDER, SWIM_LADDER } from "./lib/records.js";
 import { Elevation } from "./lib/terrain.js";
+import { buildTerrainTexture } from "./lib/terrain-texture.js";
 import { RoutingGrid } from "./lib/router.js";
 import { Globe } from "./lib/globe.js";
 
@@ -95,25 +96,13 @@ const fold = (str) => str.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowe
 let world, globe, cities, countries, folded;
 const ends = { from: null, to: null };
 
-const spin = { lat: 25, lon: -20, targetLat: 25, targetLon: -20 };
-
-function aim(lat, lon) {
-  spin.targetLat = lat;
-  let delta = lon - spin.lon;
-  while (delta > 180) delta -= 360;
-  while (delta < -180) delta += 360;
-  spin.targetLon = spin.lon + delta;
-}
-
-function midpoint(a, b) {
-  const r = Math.PI / 180;
-  const x = (Math.cos(a.lat * r) * Math.cos(a.lon * r) + Math.cos(b.lat * r) * Math.cos(b.lon * r)) / 2;
-  const y = (Math.cos(a.lat * r) * Math.sin(a.lon * r) + Math.cos(b.lat * r) * Math.sin(b.lon * r)) / 2;
-  const z = (Math.sin(a.lat * r) + Math.sin(b.lat * r)) / 2;
-  return { lat: Math.atan2(z, Math.hypot(x, y)) / r, lon: Math.atan2(y, x) / r };
-}
-
 let currentRoute = null;
+let freeLook = false;   // the viewer has taken the globe over
+let globeDirty = true;
+
+const invalidate = () => { globeDirty = true; };
+
+
 
 /* ───────────────────────────── city search ───────────────────────────── */
 
@@ -215,8 +204,13 @@ function recompute() {
   const took = Math.round(performance.now() - started);
   currentRoute = { route, from, to };
 
-  const mid = midpoint(from, to);
-  aim(mid.lat, mid.lon);
+  // A new route reframes the globe: centred on the whole path and zoomed so it
+  // fills the view. Left alone if the viewer has taken hold of the globe.
+  freeLook = false;
+  $("#globe-reset").hidden = true;
+  const shot = globe?.frameRoute(route, from, to);
+  if (shot) globe.lookAt(shot.lat, shot.lon, shot.zoom);
+  invalidate();
 
   const runPct = (route.runMetres / route.totalMetres) * 100;
   const swimPct = 100 - runPct;
@@ -304,22 +298,49 @@ function setEnds(pickers, from, to) {
   recompute();
 }
 
-function startGlobe() {
+function startGlobe(outline) {
   const canvas = $("#globe");
-  globe = new Globe(canvas, globe?.world ?? window.__world);
-  const resize = () => globe.resize();
+  globe = new Globe(canvas, outline);
+  globe.jumpTo(25, -20, 1);
+
+  globe.enableInteraction({
+    onInteract: () => { freeLook = true; $("#globe-reset").hidden = false; invalidate(); },
+  });
+
+  const resize = () => { globe.resize(); invalidate(); };
   window.addEventListener("resize", resize);
   resize();
 
+  $("#globe-reset").addEventListener("click", () => {
+    freeLook = false;
+    $("#globe-reset").hidden = true;
+    if (currentRoute) {
+      const shot = globe.frameRoute(currentRoute.route, currentRoute.from, currentRoute.to);
+      if (shot) globe.lookAt(shot.lat, shot.lon, shot.zoom);
+    }
+    invalidate();
+  });
+
+  // A read-only window onto the camera, for the site test.
+  window.__globe = () => ({
+    lat: +globe.center.lat.toFixed(3),
+    lon: +globe.center.lon.toFixed(3),
+    zoom: +globe.zoom.toFixed(3),
+    textured: !!globe.texture,
+  });
+
+  // Repaint only when there is something new to see.
   const tick = () => {
-    spin.lat += (spin.targetLat - spin.lat) * 0.07;
-    spin.lon += (spin.targetLon - spin.lon) * 0.07;
-    globe.setCenter(spin.lat, spin.lon);
-    globe.render({
-      route: currentRoute?.route,
-      from: currentRoute?.from,
-      to: currentRoute?.to,
-    });
+    const moving = globe.moving;
+    globe.step();
+    if (moving || globeDirty) {
+      globeDirty = false;
+      globe.render({
+        route: currentRoute?.route,
+        from: currentRoute?.from,
+        to: currentRoute?.to,
+      });
+    }
     requestAnimationFrame(tick);
   };
   tick();
@@ -346,13 +367,22 @@ async function boot() {
   cities = gazetteer.cities;
   countries = gazetteer.countries;
   folded = cities.map((c) => fold(c[0]));
-  window.__world = outline;
 
-  startGlobe();
+  // Coastline outlines first: the globe has something to draw immediately while
+  // the heavier work below runs.
+  startGlobe(outline);
+
+  const yieldToPaint = () => new Promise((r) => setTimeout(r, 30));
+
+  progress("Shading the terrain…");
+  await yieldToPaint();
+  // The app downloads a baked PNG of this; here the elevation grid is already
+  // in memory for routing, so the texture is built rather than fetched.
+  globe.setTexture(buildTerrainTexture(mask, elevation));
+  invalidate();
+
   progress("Building the routing grid…");
-
-  // Yield first, so the globe paints before this blocks the thread for a moment.
-  await new Promise((r) => setTimeout(r, 30));
+  await yieldToPaint();
   world = {
     mask,
     elevation,
