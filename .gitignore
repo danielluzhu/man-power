@@ -15,3 +15,4 @@ data/cities15000.txt
 data/countryInfo.txt
 data/ne_110m_land.json
 data/vapid.json
+data/secrets.json

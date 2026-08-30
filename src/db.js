@@ -32,6 +32,17 @@ export function openDatabase(path = "data/manpower.sqlite") {
       created_at INTEGER NOT NULL
     );
 
+    -- Sign-in codes, stored as an HMAC and short-lived. See src/verification.js.
+    CREATE TABLE IF NOT EXISTS verification_codes (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      phone       TEXT NOT NULL,
+      code_hash   TEXT NOT NULL,
+      created_at  INTEGER NOT NULL,
+      expires_at  INTEGER NOT NULL,
+      attempts    INTEGER NOT NULL DEFAULT 0,
+      consumed_at INTEGER
+    );
+
     -- Where to reach a courier when something lands. One row per browser, so a
     -- person with a laptop and a phone is reachable on both.
     CREATE TABLE IF NOT EXISTS push_subscriptions (
@@ -76,6 +87,7 @@ export function openDatabase(path = "data/manpower.sqlite") {
     CREATE INDEX IF NOT EXISTS idx_messages_sender    ON messages(sender_id, sent_at);
     CREATE INDEX IF NOT EXISTS idx_sessions_user      ON sessions(user_id);
     CREATE INDEX IF NOT EXISTS idx_push_user           ON push_subscriptions(user_id);
+    CREATE INDEX IF NOT EXISTS idx_codes_phone          ON verification_codes(phone, created_at);
 
     -- The delivery worker's hot query: what has landed and not been announced.
     CREATE INDEX IF NOT EXISTS idx_messages_pending

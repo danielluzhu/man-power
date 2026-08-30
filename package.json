@@ -7,7 +7,7 @@
     "start": "bun run server.js",
     "dev": "bun --watch server.js",
     "build:data": "bun run scripts/build-landmask.js && bun run scripts/build-cities.js && bun run scripts/build-elevation.js && bun run scripts/build-world.js && bun run scripts/build-globe-texture.js && bun run scripts/build-site.js",
-    "test": "bun test test/records.test.js test/geo.test.js test/terrain.test.js test/push.test.js test/ratelimit.test.js test/phone.test.js",
+    "test": "bun test test/records.test.js test/geo.test.js test/terrain.test.js test/push.test.js test/ratelimit.test.js test/phone.test.js test/verification.test.js",
     "test:browser": "bun run test/browser.js",
     "build:site": "bun run scripts/build-site.js",
     "test:site": "bun run build:site && bun run test/site.js",
