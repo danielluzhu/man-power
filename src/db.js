@@ -46,6 +46,7 @@ export function openDatabase(path = "data/manpower.sqlite") {
       to_city       TEXT NOT NULL,
       to_lat        REAL NOT NULL,
       to_lon        REAL NOT NULL,
+      notified_at   INTEGER,
       total_metres  REAL NOT NULL,
       run_metres    REAL NOT NULL,
       swim_metres   REAL NOT NULL,
@@ -53,12 +54,48 @@ export function openDatabase(path = "data/manpower.sqlite") {
       route_json    TEXT NOT NULL
     );
 
+  `);
+
+  // Migrations run between the tables and the indexes: an existing database
+  // reaches this point without the columns some indexes are defined over.
+  migrate(db);
+
+  db.exec(`
     CREATE INDEX IF NOT EXISTS idx_messages_recipient ON messages(recipient_id, arrives_at);
     CREATE INDEX IF NOT EXISTS idx_messages_sender    ON messages(sender_id, sent_at);
     CREATE INDEX IF NOT EXISTS idx_sessions_user      ON sessions(user_id);
+
+    -- The delivery worker's hot query: what has landed and not been announced.
+    CREATE INDEX IF NOT EXISTS idx_messages_pending
+      ON messages(arrives_at) WHERE notified_at IS NULL;
   `);
 
   return db;
+}
+
+/**
+ * Bring an existing database up to the schema above.
+ *
+ * Deliberately additive and idempotent: it compares the columns that are there
+ * against the ones that should be, and adds what is missing. A service holding
+ * messages that are weeks from arriving cannot be migrated by dropping and
+ * recreating anything, so the only safe migration is one that adds.
+ */
+function migrate(db) {
+  const expected = {
+    messages: {
+      notified_at: "INTEGER",
+    },
+  };
+
+  for (const [table, columns] of Object.entries(expected)) {
+    const present = new Set(db.query(`PRAGMA table_info(${table})`).all().map((c) => c.name));
+    for (const [name, type] of Object.entries(columns)) {
+      if (present.has(name)) continue;
+      db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${type}`);
+      console.log(`Migrated: added ${table}.${name}`);
+    }
+  }
 }
 
 const now = () => Date.now();
@@ -176,6 +213,46 @@ export function markRead(db, id, userId) {
   db.query(
     "UPDATE messages SET read_at = ? WHERE id = ? AND recipient_id = ? AND read_at IS NULL AND arrives_at <= ?"
   ).run(now(), id, userId, now());
+}
+
+/* ------------------------------------------------------------- delivery --- */
+
+/**
+ * Messages whose courier has arrived but whose arrival has not been announced.
+ *
+ * Ordered oldest first and capped, so a backlog — the service was down for a
+ * week, or a database was just restored — drains steadily instead of firing
+ * every notification at once.
+ */
+export function pendingArrivals(db, limit = 50) {
+  return db
+    .query(
+      `SELECT m.id, m.recipient_id, m.sender_id, m.arrives_at, m.from_city, m.to_city,
+              m.total_seconds, m.total_metres,
+              s.handle AS sender_handle,
+              r.handle AS recipient_handle
+         FROM messages m
+         JOIN users s ON s.id = m.sender_id
+         JOIN users r ON r.id = m.recipient_id
+        WHERE m.arrives_at <= ? AND m.notified_at IS NULL
+        ORDER BY m.arrives_at ASC
+        LIMIT ?`
+    )
+    .all(now(), limit);
+}
+
+/** Record that an arrival has been announced, so it is not announced twice. */
+export function markNotified(db, id) {
+  return db
+    .query("UPDATE messages SET notified_at = ? WHERE id = ? AND notified_at IS NULL")
+    .run(now(), id).changes;
+}
+
+/** How far behind the delivery worker is, for /api/health. */
+export function deliveryBacklog(db) {
+  return db
+    .query("SELECT COUNT(*) AS n FROM messages WHERE arrives_at <= ? AND notified_at IS NULL")
+    .get(now()).n;
 }
 
 /** Delivered but unread — what the inbox badge counts. */

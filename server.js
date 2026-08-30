@@ -12,6 +12,7 @@ import { RUN_LADDER, SWIM_LADDER } from "./src/records.js";
 import { Elevation } from "./src/terrain.js";
 import { RoutingGrid } from "./src/router.js";
 import { monitorClock, describeClock } from "./src/clock.js";
+import { startDelivery, journalChannel } from "./src/delivery.js";
 import * as store from "./src/db.js";
 
 const PORT = Number(process.env.PORT) || 4321;
@@ -44,6 +45,9 @@ const startedAt = Date.now();
 
 // Delivery times are computed once and stored, so a wrong clock at send time is
 // baked in permanently. Watch it rather than trust it.
+// Nothing else notices that a courier has arrived, so this does.
+const delivery = startDelivery(db, { channels: [journalChannel()] });
+
 const clock = monitorClock({
   onResult: (result) => {
     const line = describeClock(result);
@@ -242,7 +246,11 @@ const routes = {
       )
       .get(Date.now());
 
-    const healthy = clock.last.ok !== false;
+    const backlog = delivery.backlog();
+    // A growing backlog means arrivals are landing and not being announced,
+    // which is the failure this service most needs to notice about itself.
+    const healthy = clock.last.ok !== false && backlog < 100;
+
     return json(
       {
         ok: healthy,
@@ -250,6 +258,7 @@ const routes = {
         clock: clock.last,
         messages: { total: counts.total, inFlight: counts.inFlight ?? 0 },
         couriers: db.query("SELECT COUNT(*) AS n FROM users").get().n,
+        delivery: { ...delivery.stats, backlog },
       },
       healthy ? 200 : 503
     );
