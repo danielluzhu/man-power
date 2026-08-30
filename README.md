@@ -252,27 +252,126 @@ bun run build:data         # land mask, gazetteer, world outline, site assets
 You need **at least two couriers** for anything to happen — enlist a second one
 in a private window and write to yourself the long way round.
 
-### As a systemd service
+### As a service
 
 ```bash
 sudo deploy/install.sh
 ```
 
-Installs `deploy/man-power.service`, enables it for boot and waits for the port
-to actually answer before reporting success — printing the journal if it does
-not. The service runs as `ubuntu`, restarts on failure, and gives up only after
-five failures in a minute so a genuine crash loop surfaces rather than being
-restarted forever.
-
-It is sandboxed with `ProtectSystem=strict`: the app reads its datasets and
-writes exactly one SQLite database, so `/workspace/data` is the only writable
-path it has.
+Installs and enables two units: the app, and Litestream replicating its
+database. The installer waits for the app to actually answer before reporting
+success, prints the measured clock drift, and says plainly if backups are
+local-only.
 
 ```bash
-systemctl status man-power         # is it up?
-journalctl -u man-power -f         # follow the log
-sudo systemctl restart man-power   # after a code change
+systemctl status man-power litestream
+journalctl -u man-power -f
+curl -s localhost:4321/api/health | jq
 ```
+
+## Running it for real
+
+The delivery mechanic is the easy part. What makes this hard to operate is that
+the core promise is a timer measured in weeks: the data has to outlive the
+machine, and something has to speak up when a courier lands three weeks after
+the tab was closed.
+
+### The clock
+
+Every arrival is `now + journey seconds`, stored once and never recomputed. That
+makes deliveries immune to the server being down — but a wrong clock at *send*
+time bakes a wrong arrival in permanently. The message is not late; it is wrong,
+and nothing downstream can tell.
+
+`timedatectl` reports this host as unsynchronised, which looks alarming and
+isn't: it takes its time from the hypervisor via `kvm-clock` and `/dev/ptp_kvm`,
+which is exactly why `systemd-timesyncd` is masked. Running an NTP daemon here
+would fight the paravirtualised clock rather than help it. So the app checks the
+time instead of setting it — two independent sources, on boot and hourly — and
+reports the result on `/api/health`, which returns **503** when the clock is
+known to be out.
+
+### Backups
+
+Litestream streams every transaction to a replica as it happens. That is the
+right shape for SQLite, and not merely a preference: in normal operation the
+write-ahead log holds megabytes the main `.sqlite` file does not yet contain. On
+this machine it was **2.4 MB of WAL against a 4 KB database** — a backup script
+copying `data/manpower.sqlite` alone would have faithfully saved an almost empty
+file.
+
+```bash
+deploy/restore.sh          # restore to a temp file and verify it — safe any time
+sudo deploy/restore.sh --live   # stop the app, swap it in, start it again
+```
+
+The default is harmless on purpose: it proves the backup is restorable without
+touching anything, and checks integrity and row counts rather than just that a
+file appeared. Run it now and then. An untested backup is a guess, and this one
+is holding messages that are weeks from arriving.
+
+**The replica is currently local**, which survives an accidental delete, a bad
+migration or corruption — but not losing the machine. Real off-machine
+durability needs a bucket; the S3 stanza is written and commented in
+`deploy/litestream.yml`, and credentials come from
+`/etc/man-power/litestream.env`, so nothing secret is committed.
+
+### Telling people
+
+Arrival used to be evaluated only when someone loaded the page — fine for
+deciding what to show, useless as a product, since nobody keeps a tab open for
+three weeks. A worker now asks the database what has arrived and not been
+announced, tells the notification channels, and marks it.
+
+State lives in the database rather than in scheduled timers, because a timer set
+for three weeks' time does not survive a deploy, and this service will be
+deployed many times before some of its couriers land. Delivery is
+**at-least-once**: a crash mid-dispatch replays an arrival rather than losing it,
+because a duplicate notification is an annoyance and a missing one defeats the
+premise.
+
+Notifications go out over **Web Push** — no mail provider, no domain, no account
+with anyone. They name the sender and how far they came, never the message
+itself. On iOS this only works once the site is added to the home screen;
+desktop and Android need nothing.
+
+The VAPID keypair is generated on first run into `data/vapid.json` and is
+**not** in the repository. Every existing subscription is bound to it, so
+regenerating it makes every subscribed browser go silent — keep it with the
+database.
+
+### Limits
+
+| Action | Ceiling | Keyed on |
+|---|---|---|
+| Enlist | 20 / hour | address |
+| Sign in | 10 / 15 min | address (successes forgiven) |
+| Send | 20 / hour | courier |
+| Quote a route | 60 / min | courier |
+| City search | 120 / min | address |
+
+Overridable with `LIMIT_REGISTER`, `LIMIT_LOGIN`, `LIMIT_SEND`, `LIMIT_PREVIEW`
+and `LIMIT_SEARCH`, so they can be tightened under abuse without a deploy. The
+app trusts `X-Forwarded-For` because it runs behind a proxy; set `TRUST_PROXY=0`
+if it ever does not, or the header becomes a way to invent an address per
+request and walk past all of the above.
+
+## Still needed before launch
+
+Three things are blocked on decisions or credentials rather than code.
+
+- **Off-machine backups.** One bucket and four environment variables away; see
+  `deploy/litestream.yml`. Until then a lost machine is lost messages.
+- **A domain, TLS, and email.** A messaging service needs an address people can
+  return to weeks later. Email would also give account recovery, which handles
+  today have none of — forget your password and every message in flight is
+  gone.
+- **A moderation stance.** The product's rule is that nobody reads a message
+  before it arrives, which is also what makes abuse hard: a recipient cannot
+  report for three weeks, and a sealed message cannot be scanned. The server
+  does hold the plaintext at send time, so screening before sealing is possible
+  — it just costs a little of the idea. Worth choosing deliberately rather than
+  discovering after launch.
 
 ### Tests
 
@@ -281,6 +380,11 @@ bun test                   # pace model, terrain physics, routing invariants
 bun run test:browser       # drives the real app in headless Chromium
 bun run test:site          # rebuilds docs/ and drives the project site
 ```
+
+Push cannot be tested end to end — real delivery ends at Google's or Mozilla's
+servers — so the tests cover both sides of that boundary instead: that payloads
+really are encrypted and signed, and that the routing and pruning logic around
+the send behaves.
 
 The browser and site suites also assert the globe behaves: that choosing a route
 reframes the camera, and that dragging actually turns it.
@@ -307,7 +411,11 @@ src/terrain.js         gradient and altitude physics, elevation grid
 src/terrain-texture.js shaded-relief map, shared by the app and the site
 src/png.js             minimal PNG encoder, for baking the globe texture
 src/sphere.js          pure great-circle math, shared with the browser
-src/db.js              SQLite storage
+src/db.js              SQLite storage and additive migrations
+src/clock.js           checks the time the whole product rests on
+src/delivery.js        notices arrivals and announces them
+src/push.js            web push notifications
+src/ratelimit.js       ceilings on enlisting, signing in and sending
 public/globe.js        orthographic globe renderer
 public/app.js          client application
 docs/                  the published project site (GitHub Pages)
