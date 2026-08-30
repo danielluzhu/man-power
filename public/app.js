@@ -207,6 +207,95 @@ function initCityPicker(root, onPick) {
   input.addEventListener("blur", () => setTimeout(close, 120));
 }
 
+/* ─────────────────────────────── arrivals ─────────────────────────────── */
+
+/**
+ * Ask to be told when a courier lands.
+ *
+ * This is the one feature the product genuinely needs: a journey takes weeks,
+ * so by the time it ends the tab is long closed. Web Push covers that without
+ * an email provider or a domain — the caveat being that iOS only delivers to a
+ * site that has been added to the home screen.
+ */
+
+const pushSupported = () =>
+  "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+
+/** VAPID keys arrive base64url-encoded; the subscribe call wants bytes. */
+function decodeKey(base64url) {
+  const padded = (base64url + "=".repeat((4 - (base64url.length % 4)) % 4))
+    .replace(/-/g, "+")
+    .replace(/_/g, "/");
+  const raw = atob(padded);
+  return Uint8Array.from(raw, (c) => c.charCodeAt(0));
+}
+
+async function currentSubscription() {
+  if (!pushSupported()) return null;
+  const registration = await navigator.serviceWorker.getRegistration();
+  return registration ? registration.pushManager.getSubscription() : null;
+}
+
+async function enableArrivalAlerts() {
+  if (!pushSupported()) throw new Error("This browser cannot deliver arrival alerts.");
+
+  const permission = await Notification.requestPermission();
+  if (permission !== "granted") {
+    throw new Error(
+      permission === "denied"
+        ? "Notifications are blocked for this site — you will have to allow them in your browser settings."
+        : "Notifications were not allowed."
+    );
+  }
+
+  const registration = await navigator.serviceWorker.register("/sw.js");
+  await navigator.serviceWorker.ready;
+
+  const { publicKey } = await api("/api/push/key");
+  const subscription =
+    (await registration.pushManager.getSubscription()) ||
+    (await registration.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: decodeKey(publicKey),
+    }));
+
+  await post("/api/push/subscribe", subscription.toJSON());
+  return subscription;
+}
+
+async function disableArrivalAlerts() {
+  const subscription = await currentSubscription();
+  if (!subscription) return;
+  await post("/api/push/unsubscribe", { endpoint: subscription.endpoint });
+  await subscription.unsubscribe();
+}
+
+/** Reflect the current state in the button. */
+async function renderAlerts() {
+  const button = $("#alerts");
+  const note = $("#alerts-note");
+  if (!button) return;
+
+  if (!pushSupported()) {
+    button.hidden = true;
+    note.textContent = "This browser cannot deliver arrival alerts.";
+    note.hidden = false;
+    return;
+  }
+
+  const subscription = await currentSubscription().catch(() => null);
+  const on = !!subscription && Notification.permission === "granted";
+
+  button.hidden = false;
+  button.textContent = on ? "Arrival alerts on" : "Tell me when a courier arrives";
+  button.classList.toggle("is-on", on);
+
+  note.hidden = !on;
+  note.textContent = on
+    ? "You will be told when something lands, even with this closed."
+    : "";
+}
+
 /* ───────────────────────────────── state ──────────────────────────────── */
 
 const state = {
@@ -697,6 +786,28 @@ function wireApp() {
     if (state.me) aimGlobe(state.me.lat, state.me.lon, 1.6);
   });
 
+  $("#alerts").addEventListener("click", async () => {
+    const button = $("#alerts");
+    const note = $("#alerts-note");
+    button.disabled = true;
+    try {
+      const subscription = await currentSubscription();
+      if (subscription && Notification.permission === "granted") {
+        await disableArrivalAlerts();
+        toast("Arrival alerts off. Messages still arrive; you just will not be told.");
+      } else {
+        await enableArrivalAlerts();
+        toast("Arrival alerts on. You can close this and go about your week.");
+      }
+    } catch (err) {
+      note.hidden = false;
+      note.textContent = err.message;
+    } finally {
+      button.disabled = false;
+      renderAlerts();
+    }
+  });
+
   $("#logout").addEventListener("click", async () => {
     await post("/api/logout", {});
     location.reload();
@@ -742,6 +853,7 @@ async function enterApp() {
   resize();
 
   await refresh();
+  renderAlerts();
   globe.jumpTo(state.me.lat, state.me.lon, 1.6);
 
   // A read-only window onto the camera, so the browser tests can assert that

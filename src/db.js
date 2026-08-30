@@ -32,6 +32,17 @@ export function openDatabase(path = "data/manpower.sqlite") {
       created_at INTEGER NOT NULL
     );
 
+    -- Where to reach a courier when something lands. One row per browser, so a
+    -- person with a laptop and a phone is reachable on both.
+    CREATE TABLE IF NOT EXISTS push_subscriptions (
+      endpoint   TEXT PRIMARY KEY,
+      user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      p256dh     TEXT NOT NULL,
+      auth       TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      failures   INTEGER NOT NULL DEFAULT 0
+    );
+
     CREATE TABLE IF NOT EXISTS messages (
       id            INTEGER PRIMARY KEY AUTOINCREMENT,
       sender_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -64,6 +75,7 @@ export function openDatabase(path = "data/manpower.sqlite") {
     CREATE INDEX IF NOT EXISTS idx_messages_recipient ON messages(recipient_id, arrives_at);
     CREATE INDEX IF NOT EXISTS idx_messages_sender    ON messages(sender_id, sent_at);
     CREATE INDEX IF NOT EXISTS idx_sessions_user      ON sessions(user_id);
+    CREATE INDEX IF NOT EXISTS idx_push_user           ON push_subscriptions(user_id);
 
     -- The delivery worker's hot query: what has landed and not been announced.
     CREATE INDEX IF NOT EXISTS idx_messages_pending
@@ -213,6 +225,37 @@ export function markRead(db, id, userId) {
   db.query(
     "UPDATE messages SET read_at = ? WHERE id = ? AND recipient_id = ? AND read_at IS NULL AND arrives_at <= ?"
   ).run(now(), id, userId, now());
+}
+
+/* ----------------------------------------------------- push subscriptions --- */
+
+/**
+ * Remember where to reach someone. Keyed on the endpoint, so re-subscribing the
+ * same browser updates rather than duplicates — browsers hand out a new key
+ * pair for the same endpoint from time to time.
+ */
+export function saveSubscription(db, userId, { endpoint, keys }) {
+  db.query(
+    `INSERT INTO push_subscriptions (endpoint, user_id, p256dh, auth, created_at, failures)
+     VALUES (?, ?, ?, ?, ?, 0)
+     ON CONFLICT(endpoint) DO UPDATE SET
+       user_id = excluded.user_id,
+       p256dh  = excluded.p256dh,
+       auth    = excluded.auth,
+       failures = 0`
+  ).run(endpoint, userId, keys.p256dh, keys.auth, now());
+}
+
+export function subscriptionsFor(db, userId) {
+  return db.query("SELECT * FROM push_subscriptions WHERE user_id = ?").all(userId);
+}
+
+export function deleteSubscription(db, endpoint) {
+  return db.query("DELETE FROM push_subscriptions WHERE endpoint = ?").run(endpoint).changes;
+}
+
+export function countSubscriptions(db) {
+  return db.query("SELECT COUNT(*) AS n FROM push_subscriptions").get().n;
 }
 
 /* ------------------------------------------------------------- delivery --- */

@@ -13,6 +13,7 @@ import { Elevation } from "./src/terrain.js";
 import { RoutingGrid } from "./src/router.js";
 import { monitorClock, describeClock } from "./src/clock.js";
 import { startDelivery, journalChannel } from "./src/delivery.js";
+import { loadVapid, pushChannel } from "./src/push.js";
 import * as store from "./src/db.js";
 
 const PORT = Number(process.env.PORT) || 4321;
@@ -45,8 +46,10 @@ const startedAt = Date.now();
 
 // Delivery times are computed once and stored, so a wrong clock at send time is
 // baked in permanently. Watch it rather than trust it.
+const vapid = await loadVapid();
+
 // Nothing else notices that a courier has arrived, so this does.
-const delivery = startDelivery(db, { channels: [journalChannel()] });
+const delivery = startDelivery(db, { channels: [journalChannel(), pushChannel(db)] });
 
 const clock = monitorClock({
   onResult: (result) => {
@@ -233,6 +236,29 @@ const routes = {
 
   "GET /api/records": () => json({ running: RUN_LADDER, swimming: SWIM_LADDER }),
 
+  /** The public half of the VAPID keypair, which the browser needs to subscribe. */
+  "GET /api/push/key": () => json({ publicKey: vapid.publicKey }),
+
+  "POST /api/push/subscribe": async (req) => {
+    const user = currentUser(req);
+    if (!user) return fail("Not signed in", 401);
+
+    const subscription = await req.json();
+    if (!subscription?.endpoint || !subscription?.keys?.p256dh || !subscription?.keys?.auth) {
+      return fail("Incomplete push subscription");
+    }
+    store.saveSubscription(db, user.id, subscription);
+    return json({ ok: true });
+  },
+
+  "POST /api/push/unsubscribe": async (req) => {
+    const user = currentUser(req);
+    if (!user) return fail("Not signed in", 401);
+    const { endpoint } = await req.json();
+    if (endpoint) store.deleteSubscription(db, endpoint);
+    return json({ ok: true });
+  },
+
   /**
    * Health, for monitoring. Reports the clock explicitly: a service whose whole
    * promise is a timer should say out loud whether it still knows the time.
@@ -258,7 +284,7 @@ const routes = {
         clock: clock.last,
         messages: { total: counts.total, inFlight: counts.inFlight ?? 0 },
         couriers: db.query("SELECT COUNT(*) AS n FROM users").get().n,
-        delivery: { ...delivery.stats, backlog },
+        delivery: { ...delivery.stats, backlog, subscriptions: store.countSubscriptions(db) },
       },
       healthy ? 200 : 503
     );

@@ -102,6 +102,11 @@
       <section class="view is-active" data-view="dispatch">
         <h2 class="view__title">Dispatch a courier</h2>
 
+        <div class="alerts">
+          <button class="btn btn--sm" id="alerts" hidden>Tell me when a courier arrives</button>
+          <p class="alerts__note" id="alerts-note" hidden></p>
+        </div>
+
         <label class="field">
           <span class="field__label">Recipient</span>
           <select id="recipient" class="select"></select>
