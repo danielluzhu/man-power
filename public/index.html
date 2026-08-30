@@ -28,33 +28,45 @@
       one second sooner.
     </p>
 
-    <div class="tabs" role="tablist">
-      <button class="tab is-active" data-auth-tab="login" role="tab">Sign in</button>
-      <button class="tab" data-auth-tab="register" role="tab">Enlist</button>
-    </div>
+    <!-- Signing in and enlisting are the same act: a number, then a code. A
+         separate sign-up would also answer "is this number registered?" for
+         anyone who cared to ask. -->
 
-    <form id="login-form" class="form">
-      <label class="field">
-        <span class="field__label">Handle</span>
-        <input name="handle" autocomplete="username" required placeholder="kipchoge">
-      </label>
-      <label class="field">
-        <span class="field__label">Password</span>
-        <input name="password" type="password" autocomplete="current-password" required>
-      </label>
-      <button class="btn btn--primary" type="submit">Sign in</button>
+    <form id="phone-form" class="form">
+      <div class="field">
+        <span class="field__label">Your phone number</span>
+        <div class="phone-entry">
+          <select id="calling-code" class="select select--code" aria-label="Country calling code"></select>
+          <input id="phone" name="phone" type="tel" inputmode="tel" autocomplete="tel"
+                 placeholder="7911 123456" required>
+        </div>
+        <p class="field__hint">Used to sign you in, and never shown to anyone else.</p>
+      </div>
+      <button class="btn btn--primary btn--block" type="submit">Send me a code</button>
       <p class="form__error" data-error></p>
     </form>
 
-    <form id="register-form" class="form" hidden>
+    <form id="code-form" class="form" hidden>
+      <div class="field">
+        <span class="field__label">Code sent to <span data-masked></span></span>
+        <input id="code" name="code" inputmode="numeric" autocomplete="one-time-code"
+               maxlength="6" pattern="[0-9]*" placeholder="······" class="code-input" required>
+        <p class="field__hint" data-code-hint>Six digits. It expires in ten minutes.</p>
+      </div>
+      <button class="btn btn--primary btn--block" type="submit">Sign in</button>
+      <div class="form__aside">
+        <button type="button" class="linky" data-resend>Send another</button>
+        <button type="button" class="linky" data-restart>Use a different number</button>
+      </div>
+      <p class="form__error" data-error></p>
+    </form>
+
+    <form id="profile-form" class="form" hidden>
+      <p class="auth__welcome">That number is new here. Two things and you are away.</p>
       <label class="field">
         <span class="field__label">Handle</span>
         <input name="handle" autocomplete="username" required placeholder="kipchoge"
                pattern="[A-Za-z0-9_\-]{2,24}">
-      </label>
-      <label class="field">
-        <span class="field__label">Password</span>
-        <input name="password" type="password" autocomplete="new-password" required minlength="6">
       </label>
       <div class="field">
         <span class="field__label">Where do you stand?</span>
@@ -64,7 +76,7 @@
         </div>
         <p class="citypick__chosen" data-chosen hidden></p>
       </div>
-      <button class="btn btn--primary" type="submit">Enlist</button>
+      <button class="btn btn--primary btn--block" type="submit">Enlist</button>
       <p class="form__error" data-error></p>
     </form>
   </div>

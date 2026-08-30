@@ -14,16 +14,28 @@ export function openDatabase(path = "data/manpower.sqlite") {
   db.exec("PRAGMA journal_mode = WAL");
   db.exec("PRAGMA foreign_keys = ON");
 
+  retireLegacyAuth(db);
+
   db.exec(`
     CREATE TABLE IF NOT EXISTS users (
       id            INTEGER PRIMARY KEY AUTOINCREMENT,
       handle        TEXT NOT NULL UNIQUE COLLATE NOCASE,
-      password_hash TEXT NOT NULL,
+      -- E.164, and the account's identity. Never leaves the server.
+      phone         TEXT NOT NULL UNIQUE,
       city          TEXT NOT NULL,
       country       TEXT NOT NULL,
       lat           REAL NOT NULL,
       lon           REAL NOT NULL,
       created_at    INTEGER NOT NULL
+    );
+
+    -- A verified number with no account yet, holding the gap between proving
+    -- the number and choosing a handle. Short-lived by design.
+    CREATE TABLE IF NOT EXISTS enrolments (
+      token      TEXT PRIMARY KEY,
+      phone      TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      expires_at INTEGER NOT NULL
     );
 
     CREATE TABLE IF NOT EXISTS sessions (
@@ -98,6 +110,42 @@ export function openDatabase(path = "data/manpower.sqlite") {
 }
 
 /**
+ * Sign-in moved from a handle and password to a phone number and an SMS code.
+ *
+ * There is no way to migrate an old account: identity is now the number, and a
+ * password account has no number to become. So an empty legacy table is simply
+ * dropped and recreated, and one with accounts in it stops the server rather
+ * than quietly destroying them — whoever runs it has to decide what happens to
+ * those people.
+ */
+function retireLegacyAuth(db) {
+  const table = db
+    .query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'users'")
+    .get();
+  if (!table) return;
+
+  const columns = db.query("PRAGMA table_info(users)").all().map((c) => c.name);
+  if (!columns.includes("password_hash")) return;
+
+  const { n } = db.query("SELECT COUNT(*) AS n FROM users").get();
+  if (n > 0) {
+    throw new Error(
+      `This database has ${n} account(s) from the password era, which cannot be migrated to ` +
+      `phone sign-in — there is no number to migrate them to. Those people need to enrol again. ` +
+      `Back up data/manpower.sqlite, then drop the users table to proceed.`
+    );
+  }
+
+  console.log("Retiring the password-era users table (it was empty).");
+  db.exec("PRAGMA foreign_keys = OFF");
+  db.exec("DROP TABLE IF EXISTS sessions");
+  db.exec("DROP TABLE IF EXISTS push_subscriptions");
+  db.exec("DROP TABLE IF EXISTS messages");
+  db.exec("DROP TABLE users");
+  db.exec("PRAGMA foreign_keys = ON");
+}
+
+/**
  * Bring an existing database up to the schema above.
  *
  * Deliberately additive and idempotent: it compares the columns that are there
@@ -126,13 +174,18 @@ const now = () => Date.now();
 
 /* ---------------------------------------------------------------- users --- */
 
-export async function createUser(db, { handle, password, city, country, lat, lon }) {
-  const hash = await Bun.password.hash(password);
-  const stmt = db.query(
-    `INSERT INTO users (handle, password_hash, city, country, lat, lon, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING *`
-  );
-  return stmt.get(handle.trim(), hash, city, country, lat, lon, now());
+export function createUser(db, { handle, phone, city, country, lat, lon }) {
+  return db
+    .query(
+      `INSERT INTO users (handle, phone, city, country, lat, lon, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING *`
+    )
+    .get(handle.trim(), phone, city, country, lat, lon, now());
+}
+
+/** Look someone up by the number that identifies them. */
+export function findUserByPhone(db, phone) {
+  return db.query("SELECT * FROM users WHERE phone = ?").get(phone);
 }
 
 export function findUserByHandle(db, handle) {
@@ -141,10 +194,6 @@ export function findUserByHandle(db, handle) {
 
 export function findUserById(db, id) {
   return db.query("SELECT * FROM users WHERE id = ?").get(id);
-}
-
-export async function verifyPassword(user, password) {
-  return Bun.password.verify(password, user.password_hash);
 }
 
 export function updateUserLocation(db, userId, { city, country, lat, lon }) {
@@ -160,9 +209,42 @@ export function listOtherUsers(db, userId) {
     .all(userId);
 }
 
-/** Strip the password hash before anything leaves the server. */
+/**
+ * What other people are allowed to see. Notably not the phone number: it is the
+ * account's identity and nobody else's business, so it never appears in any
+ * response about someone else.
+ */
 export const publicUser = (u) =>
   u && { id: u.id, handle: u.handle, city: u.city, country: u.country, lat: u.lat, lon: u.lon };
+
+/* ----------------------------------------------------------- enrolments --- */
+
+/**
+ * Hold a verified number while its owner picks a handle and a city. Ten minutes
+ * is generous for a two-field form and short enough that an abandoned one
+ * cannot be picked up later.
+ */
+export function createEnrolment(db, phone, ttlMs = 10 * 60 * 1000) {
+  const token = crypto.randomUUID().replaceAll("-", "") + crypto.randomUUID().replaceAll("-", "");
+  const at = now();
+  db.query("INSERT INTO enrolments (token, phone, created_at, expires_at) VALUES (?, ?, ?, ?)")
+    .run(token, phone, at, at + ttlMs);
+  return token;
+}
+
+export function enrolmentFor(db, token) {
+  if (!token) return null;
+  return db.query("SELECT * FROM enrolments WHERE token = ? AND expires_at > ?").get(token, now());
+}
+
+export function consumeEnrolment(db, token) {
+  db.query("DELETE FROM enrolments WHERE token = ?").run(token);
+}
+
+/** Housekeeping, alongside expired codes. */
+export function pruneEnrolments(db) {
+  return db.query("DELETE FROM enrolments WHERE expires_at < ?").run(now()).changes;
+}
 
 /* ------------------------------------------------------------- sessions --- */
 

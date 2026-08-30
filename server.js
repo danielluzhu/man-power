@@ -15,6 +15,11 @@ import { monitorClock, describeClock } from "./src/clock.js";
 import { startDelivery, journalChannel } from "./src/delivery.js";
 import { loadVapid, pushChannel } from "./src/push.js";
 import { rateLimiter, clientAddress, tooMany } from "./src/ratelimit.js";
+// Both aliased: `mask` is already the land mask, and `countries` the city
+// gazetteer's country names.
+import { normalise, mask as maskPhone, countries as callingCodes } from "./src/phone.js";
+import { smsTransport } from "./src/sms.js";
+import { issueCode, verifyCode, pruneCodes, CODE_LENGTH } from "./src/verification.js";
 import * as store from "./src/db.js";
 
 const PORT = Number(process.env.PORT) || 4321;
@@ -48,6 +53,14 @@ const startedAt = Date.now();
 // Delivery times are computed once and stored, so a wrong clock at send time is
 // baked in permanently. Watch it rather than trust it.
 const vapid = await loadVapid();
+const sms = smsTransport();
+console.log(`SMS transport: ${sms.name}${sms.live ? "" : " (development — codes go to this log)"}`);
+
+// Expired codes and abandoned enrolments are worthless; sweep them hourly.
+setInterval(() => {
+  pruneCodes(db);
+  store.pruneEnrolments(db);
+}, 60 * 60 * 1000).unref?.();
 
 // Nothing else notices that a courier has arrived, so this does.
 const delivery = startDelivery(db, { channels: [journalChannel(), pushChannel(db)] });
@@ -80,8 +93,18 @@ const clock = monitorClock({
 const ceiling = (name, fallback) => Number(process.env[`LIMIT_${name.toUpperCase()}`]) || fallback;
 
 const LIMITS = {
-  register: rateLimiter({ limit: ceiling("register", 20), windowMs: 60 * 60 * 1000, name: "register" }),
-  login:    rateLimiter({ limit: ceiling("login", 10),    windowMs: 15 * 60 * 1000, name: "login" }),
+  // Each SMS costs money, which makes the request endpoint the one an attacker
+  // profits from: pointing it at numbers they control turns a sign-in form into
+  // a bill. Hence a tight per-number ceiling as well as a per-address one.
+  codePerPhone: rateLimiter({ limit: ceiling("code_per_phone", 3),  windowMs: 60 * 60 * 1000, name: "code/phone" }),
+  codePerHost:  rateLimiter({ limit: ceiling("code_per_host", 15),  windowMs: 60 * 60 * 1000, name: "code/host" }),
+  // Guessing is really bounded by the five attempts a single code allows; these
+  // stop someone working through numbers. Keyed on the number first, because
+  // that is what is under attack — an address-only limit would have a whole
+  // office sharing one allowance and locking itself out.
+  verifyPerPhone: rateLimiter({ limit: ceiling("verify_per_phone", 10), windowMs: 15 * 60 * 1000, name: "verify/phone" }),
+  verifyPerHost:  rateLimiter({ limit: ceiling("verify_per_host", 60),  windowMs: 15 * 60 * 1000, name: "verify/host" }),
+  enrol:        rateLimiter({ limit: ceiling("register", 20),       windowMs: 60 * 60 * 1000, name: "enrol" }),
   send:     rateLimiter({ limit: ceiling("send", 20),     windowMs: 60 * 60 * 1000, name: "send" }),
   preview:  rateLimiter({ limit: ceiling("preview", 60),  windowMs: 60 * 1000,      name: "preview" }),
   search:   rateLimiter({ limit: ceiling("search", 120),  windowMs: 60 * 1000,      name: "search" }),
@@ -94,26 +117,40 @@ const TRUST_PROXY = process.env.TRUST_PROXY !== "0";
 
 /* ------------------------------------------------------------- helpers --- */
 
-const json = (data, status = 200, headers = {}) =>
-  new Response(JSON.stringify(data), {
+function json(data, status = 200, headers = {}) {
+  const response = new Response(JSON.stringify(data), {
     status,
-    headers: { "content-type": "application/json", ...headers },
+    headers: { "content-type": "application/json" },
   });
+  for (const [name, value] of Object.entries(headers)) {
+    // Several Set-Cookie headers have to be appended, not merged into one.
+    if (Array.isArray(value)) for (const entry of value) response.headers.append(name, entry);
+    else response.headers.set(name, value);
+  }
+  return response;
+}
 
 const fail = (message, status = 400) => json({ error: message }, status);
 
-function cookieToken(req) {
-  const raw = req.headers.get("cookie");
-  if (!raw) return null;
-  for (const part of raw.split(";")) {
-    const [k, ...v] = part.trim().split("=");
-    if (k === "mp_session") return decodeURIComponent(v.join("="));
-  }
-  return null;
-}
+const cookieToken = (req) => cookie(req, "mp_session");
 
 const sessionCookie = (token) =>
   `mp_session=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${60 * 60 * 24 * 365}`;
+
+const enrolmentCookie = (token) =>
+  `mp_enrol=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=600`;
+
+const CLEARED_ENROLMENT = "mp_enrol=; Path=/; Max-Age=0";
+
+function cookie(req, name) {
+  const raw = req.headers.get("cookie");
+  if (!raw) return null;
+  for (const part of raw.split(";")) {
+    const [key, ...value] = part.trim().split("=");
+    if (key === name) return decodeURIComponent(value.join("="));
+  }
+  return null;
+}
 
 const currentUser = (req) => store.userForToken(db, cookieToken(req));
 
@@ -210,43 +247,125 @@ function resolveDestination(payload) {
 /* -------------------------------------------------------------- routes --- */
 
 const routes = {
-  "POST /api/register": async (req, server) => {
-    const from = clientAddress(req, server, { trustProxy: TRUST_PROXY });
-    const allowed = LIMITS.register.check(from);
+  /** Country calling codes, so nobody has to remember their own. */
+  "GET /api/auth/countries": () => json({ countries: callingCodes() }),
+
+  /**
+   * Step one: prove you can receive a message at this number.
+   *
+   * Signing in and signing up are the same request. That is partly kindness —
+   * one field, one button — and partly that a separate sign-up would answer the
+   * question "is this number registered?" for anyone who asked.
+   */
+  "POST /api/auth/request": async (req, server) => {
+    const { phone, country } = await req.json();
+
+    const number = normalise(phone, country);
+    if (!number.ok) return fail(number.reason);
+
+    const host = clientAddress(req, server, { trustProxy: TRUST_PROXY });
+    const byHost = LIMITS.codePerHost.check(host);
+    if (!byHost.ok) return tooMany(byHost, "Too many codes requested from here. Try again later.");
+
+    const byPhone = LIMITS.codePerPhone.check(number.e164);
+    if (!byPhone.ok) {
+      return tooMany(byPhone, "A code has already been sent to that number. Wait a little, or use the one you have.");
+    }
+
+    const { code, expiresInSeconds } = await issueCode(db, number.e164);
+    try {
+      await sms.send({
+        to: number.e164,
+        body: `${code} is your Man Power code. It expires in ten minutes.`,
+      });
+    } catch (err) {
+      console.error(`Could not send a code to ${maskPhone(number.e164)}: ${err.message}`);
+      return fail("Could not send a code to that number just now. Try again shortly.", 502);
+    }
+
+    // The normalised number goes back so the next step is unambiguous, and the
+    // masked form so the page can show which number it went to.
+    return json({
+      ok: true,
+      phone: number.e164,
+      masked: maskPhone(number.e164),
+      codeLength: CODE_LENGTH,
+      expiresInSeconds,
+    });
+  },
+
+  /**
+   * Step two: the code. A known number signs in; an unknown one gets a
+   * short-lived enrolment to finish setting up.
+   */
+  "POST /api/auth/verify": async (req, server) => {
+    const { phone, code } = await req.json();
+
+    const number = normalise(phone);
+    if (!number.ok) return fail(number.reason);
+
+    const byPhone = LIMITS.verifyPerPhone.check(number.e164);
+    if (!byPhone.ok) return tooMany(byPhone, "Too many attempts on that number. Try again shortly.");
+
+    const host = clientAddress(req, server, { trustProxy: TRUST_PROXY });
+    const byHost = LIMITS.verifyPerHost.check(host);
+    if (!byHost.ok) return tooMany(byHost, "Too many attempts from here. Try again shortly.");
+
+    const result = await verifyCode(db, number.e164, code);
+    if (!result.ok) return json({ error: result.reason, attemptsRemaining: result.attemptsRemaining }, 401);
+
+    // Getting in should not spend the allowance meant for people guessing.
+    LIMITS.verifyPerPhone.forgive(number.e164);
+    LIMITS.verifyPerHost.forgive(host);
+
+    const existing = store.findUserByPhone(db, number.e164);
+    if (existing) {
+      const token = store.createSession(db, existing.id);
+      return json({ user: store.publicUser(existing) }, 200, {
+        "set-cookie": sessionCookie(token),
+      });
+    }
+
+    const enrolment = store.createEnrolment(db, number.e164);
+    return json({ needsProfile: true, masked: maskPhone(number.e164) }, 200, {
+      "set-cookie": enrolmentCookie(enrolment),
+    });
+  },
+
+  /** Step three, for a number nobody has used before: a handle and a home. */
+  "POST /api/auth/enrol": async (req, server) => {
+    const enrolment = store.enrolmentFor(db, cookie(req, "mp_enrol"));
+    if (!enrolment) return fail("That took too long — start again with your number.", 401);
+
+    const allowed = LIMITS.enrol.check(clientAddress(req, server, { trustProxy: TRUST_PROXY }));
     if (!allowed.ok) return tooMany(allowed, "Too many couriers enlisted from here. Try again later.");
 
-    const { handle, password, city } = await req.json();
+    const { handle, city } = await req.json();
     if (!handle || !/^[a-zA-Z0-9_-]{2,24}$/.test(handle))
       return fail("Handle must be 2–24 characters: letters, numbers, dashes or underscores");
-    if (!password || password.length < 6) return fail("Password must be at least 6 characters");
     if (!city?.name || !Number.isFinite(city.lat)) return fail("Pick your home city");
     if (store.findUserByHandle(db, handle)) return fail("That handle is taken", 409);
 
-    const user = await store.createUser(db, {
-      handle, password,
-      city: city.name, country: city.country || "",
-      lat: city.lat, lon: city.lon,
+    // The number could have been claimed since the code was verified.
+    if (store.findUserByPhone(db, enrolment.phone)) {
+      store.consumeEnrolment(db, enrolment.token);
+      return fail("That number is already enlisted. Start again to sign in.", 409);
+    }
+
+    const user = store.createUser(db, {
+      handle,
+      phone: enrolment.phone,
+      city: city.name,
+      country: city.country || "",
+      lat: city.lat,
+      lon: city.lon,
     });
-    const token = store.createSession(db, user.id);
-    return json({ user: store.publicUser(user) }, 200, { "set-cookie": sessionCookie(token) });
-  },
-
-  "POST /api/login": async (req, server) => {
-    const from = clientAddress(req, server, { trustProxy: TRUST_PROXY });
-    const allowed = LIMITS.login.check(from);
-    if (!allowed.ok) return tooMany(allowed, "Too many sign-in attempts. Try again shortly.");
-
-    const { handle, password } = await req.json();
-    const user = store.findUserByHandle(db, handle || "");
-    if (!user || !(await store.verifyPassword(user, password || "")))
-      return fail("Wrong handle or password", 401);
-
-    // Only failures should count against the limit, or someone signing in on
-    // several devices spends their budget on nothing.
-    LIMITS.login.forgive(from);
+    store.consumeEnrolment(db, enrolment.token);
 
     const token = store.createSession(db, user.id);
-    return json({ user: store.publicUser(user) }, 200, { "set-cookie": sessionCookie(token) });
+    return json({ user: store.publicUser(user) }, 200, {
+      "set-cookie": [sessionCookie(token), CLEARED_ENROLMENT],
+    });
   },
 
   "POST /api/logout": (req) => {
@@ -258,7 +377,8 @@ const routes = {
     const user = currentUser(req);
     if (!user) return fail("Not signed in", 401);
     return json({
-      user: store.publicUser(user),
+      // Only the owner sees their own number, and only masked.
+      user: { ...store.publicUser(user), phone: maskPhone(user.phone) },
       unread: store.unreadCount(db, user.id),
       couriers: store.listOtherUsers(db, user.id),
     });

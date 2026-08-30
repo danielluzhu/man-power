@@ -11,10 +11,31 @@
  */
 
 import puppeteer from "puppeteer-core";
+import { $ } from "bun";
 
 const CHROMIUM = process.env.CHROMIUM_PATH || "/usr/bin/chromium";
 const BASE = process.env.BASE_URL || "http://localhost:4321";
 const stamp = Date.now().toString(36);
+
+/**
+ * Read the code out of the journal, which is where the development SMS
+ * transport puts it.
+ *
+ * Deliberately not a test-only endpoint. A back door that hands out codes is
+ * exactly the thing that gets left switched on in production, and reading the
+ * log exercises the real path — issue, send, transport — rather than
+ * side-stepping it.
+ */
+async function latestCode() {
+  const log = await $`sudo journalctl -u man-power --no-pager --since "-60s" -o cat`.text();
+  const matches = [...log.matchAll(/SMS to .*?: (\d{6})/g)];
+  if (!matches.length) throw new Error("no code found in the journal");
+  return matches.at(-1)[1];
+}
+
+/** Phone numbers that no real person has, in a range Spain issues to mobiles. */
+let issued = 0;
+const testNumber = () => `6${String(10_000_000 + (Date.now() % 80_000_000) + issued++ * 7).slice(0, 8)}`;
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 const checks = [];
@@ -45,19 +66,55 @@ try {
   check("sign-in screen is visible", await page.$eval("#auth", (el) => !el.hidden));
   check("app is hidden behind it", await page.$eval("#app", (el) => el.hidden));
 
-  // Enlist two couriers on different continents.
+  /**
+   * Enlist a courier: a number, the code that number receives, then a handle
+   * and a home. Returns the number, so the same person can sign in again.
+   */
   const enlist = async (handle, cityQuery) => {
-    await page.waitForSelector('[data-auth-tab="register"]', { visible: true });
-    await page.click('[data-auth-tab="register"]');
-    await page.type('#register-form input[name="handle"]', handle);
-    await page.type('#register-form input[name="password"]', "recordpace");
-    await page.type("#register-form .citypick__input", cityQuery);
+    const number = testNumber();
+    await signInWith(number);
+
+    await page.waitForSelector("#profile-form:not([hidden])", { timeout: 20_000 });
+    await page.type('#profile-form input[name="handle"]', handle);
+    await page.type("#profile-form .citypick__input", cityQuery);
     // The picker debounces, so wait for a real result rather than a fixed delay.
-    await page.waitForSelector("#register-form .citypick__results li", { visible: true });
-    await page.click("#register-form .citypick__results li");
-    await page.click('#register-form button[type="submit"]');
-    await page.waitForSelector("#app:not([hidden])");
+    await page.waitForSelector("#profile-form .citypick__results li", { visible: true });
+    await page.click("#profile-form .citypick__results li");
+    await page.click('#profile-form button[type="submit"]');
+    await page.waitForSelector("#app:not([hidden])", { timeout: 20_000 });
     await wait(1200);
+    return number;
+  };
+
+  /** Whatever the sign-in forms are currently complaining about. */
+  const authComplaint = async () => {
+    const messages = await page.$$eval("#auth [data-error]", (nodes) =>
+      nodes.map((n) => n.textContent.trim()).filter(Boolean)
+    );
+    return messages.join(" / ") || "(no message on the page)";
+  };
+
+  /** The two steps every sign-in shares, new courier or returning. */
+  const signInWith = async (number) => {
+    await page.waitForSelector("#phone-form:not([hidden])", { visible: true });
+    await page.select("#calling-code", "ES");
+    await page.type("#phone", number);
+    await page.click('#phone-form button[type="submit"]');
+
+    try {
+      await page.waitForSelector("#code-form:not([hidden])", { timeout: 20_000 });
+    } catch {
+      throw new Error(`never reached the code step — the page said: ${await authComplaint()}`);
+    }
+
+    await page.type("#code", await latestCode());
+    await page.click('#code-form button[type="submit"]');
+    await wait(800);
+
+    const complaint = await authComplaint();
+    if (complaint !== "(no message on the page)") {
+      throw new Error(`the code was refused — the page said: ${complaint}`);
+    }
   };
 
   const signOut = async () => {
@@ -69,19 +126,21 @@ try {
     await wait(600);
   };
 
-  await enlist(`sender-${stamp}`, "Eldoret");
+  const senderNumber = await enlist(`sender-${stamp}`, "Eldoret");
   check("app opens after enlisting", await page.$eval("#app", (el) => !el.hidden));
 
   await signOut();
-  await enlist(`getter-${stamp}`, "Reykjavik");
+  const recipientNumber = await enlist(`getter-${stamp}`, "Reykjavik");
   await signOut();
 
-  // Sign back in as the sender and quote a journey.
-  await page.type('#login-form input[name="handle"]', `sender-${stamp}`);
-  await page.type('#login-form input[name="password"]', "recordpace");
-  await page.click('#login-form button[type="submit"]');
-  await page.waitForSelector("#app:not([hidden])");
+  // A number that has enlisted before signs straight in, with no profile step.
+  await signInWith(senderNumber);
+  await page.waitForSelector("#app:not([hidden])", { timeout: 20_000 });
   await wait(1200);
+  check("a returning number signs in without enlisting again",
+        await page.$eval("#profile-form", (el) => el.hidden));
+  check("signed in as the right courier",
+        (await page.$eval("[data-me-handle]", (el) => el.textContent)) === `sender-${stamp}`);
 
   await page.select("#recipient", `getter-${stamp}`);
   await wait(1500);
@@ -106,16 +165,12 @@ try {
   const t2 = await page.$eval("[data-hud-countdown]", (el) => el.textContent);
   check("countdown is ticking", t1 !== t2, `${t1} → ${t2}`);
 
-  // The receiving side must not be handed the body.
-  const cookies = await page.cookies();
-  await page.deleteCookie(...cookies);
-  await page.evaluate(async (handle) => {
-    await fetch("/api/login", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ handle, password: "recordpace" }),
-    });
-  }, `getter-${stamp}`);
+  // The receiving side must not be handed the body. Sign in as them properly,
+  // through the same flow a person would use.
+  await signOut();
+  await signInWith(recipientNumber);
+  await page.waitForSelector("#app:not([hidden])", { timeout: 20_000 });
+  await wait(1000);
   const inbox = await page.evaluate(async () => (await fetch("/api/inbox")).json());
   const received = inbox.messages.at(-1);
   check("recipient's inbox withholds the body", received.body === null);

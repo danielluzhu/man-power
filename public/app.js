@@ -386,6 +386,8 @@ function startGlobeLoop() {
 function renderMe() {
   $("[data-me-handle]").textContent = state.me.handle;
   $("[data-me-city]").textContent = state.me.city;
+  // The masked number, so it is clear which account this is without exposing it.
+  $("#whoami").title = `${state.me.phone} · click to change where you stand`;
 }
 
 function renderRecipients() {
@@ -691,43 +693,135 @@ function showView(name) {
 
 /* ──────────────────────────────── wiring ──────────────────────────────── */
 
-function wireAuth() {
-  $$("[data-auth-tab]").forEach((tab) => {
-    tab.addEventListener("click", () => {
-      const which = tab.dataset.authTab;
-      $$("[data-auth-tab]").forEach((t) => t.classList.toggle("is-active", t === tab));
-      $("#login-form").hidden = which !== "login";
-      $("#register-form").hidden = which !== "register";
-    });
-  });
+/* ─────────────────────────────── signing in ───────────────────────────── */
 
+/**
+ * A number, then a code, then — only for a number nobody has used before — a
+ * handle and a home. Signing in and enlisting are the same three steps, which
+ * is both kinder and means the page never reveals whether a number is already
+ * registered.
+ */
+const auth = { phone: null, masked: null };
+
+function showAuthStep(step) {
+  $("#phone-form").hidden = step !== "phone";
+  $("#code-form").hidden = step !== "code";
+  $("#profile-form").hidden = step !== "profile";
+
+  const focus = { phone: "#phone", code: "#code", profile: '#profile-form input[name="handle"]' }[step];
+  setTimeout(() => $(focus)?.focus(), 30);
+}
+
+/**
+ * Guess the caller's country from their browser, so most people never touch
+ * the dropdown. It is only a default — the field is theirs to change.
+ */
+function guessRegion() {
+  for (const tag of navigator.languages ?? [navigator.language]) {
+    try {
+      const region = new Intl.Locale(tag).region;
+      if (region) return region;
+    } catch {}
+  }
+  return "GB";
+}
+
+async function fillCallingCodes() {
+  const select = $("#calling-code");
+  try {
+    const { countries } = await api("/api/auth/countries");
+    select.innerHTML = countries
+      .map((c) => `<option value="${c.code}">${c.code} ${c.callingCode}</option>`)
+      .join("");
+    const guess = guessRegion();
+    if (countries.some((c) => c.code === guess)) select.value = guess;
+  } catch {
+    select.innerHTML = `<option value="GB">GB +44</option>`;
+  }
+}
+
+async function requestCode(error) {
+  error.textContent = "";
+  const phone = $("#phone").value;
+  const country = $("#calling-code").value;
+
+  const result = await post("/api/auth/request", { phone, country });
+  auth.phone = result.phone;
+  auth.masked = result.masked;
+
+  $("[data-masked]").textContent = result.masked;
+  $("#code").value = "";
+  showAuthStep("code");
+}
+
+function wireAuth() {
+  fillCallingCodes();
   initCityPicker($('[data-citypick="register"]'), (city) => { state.registerCity = city; });
 
-  $("#login-form").addEventListener("submit", async (e) => {
+  $("#phone-form").addEventListener("submit", async (e) => {
     e.preventDefault();
-    const form = new FormData(e.target);
-    const err = $("[data-error]", e.target);
-    err.textContent = "";
+    const button = e.target.querySelector("button");
+    const error = $("[data-error]", e.target);
+    button.disabled = true;
     try {
-      await post("/api/login", { handle: form.get("handle"), password: form.get("password") });
-      await enterApp();
-    } catch (ex) { err.textContent = ex.message; }
+      await requestCode(error);
+    } catch (ex) {
+      error.textContent = ex.message;
+    } finally {
+      button.disabled = false;
+    }
   });
 
-  $("#register-form").addEventListener("submit", async (e) => {
+  $("#code-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const button = e.target.querySelector('button[type="submit"]');
+    const error = $("[data-error]", e.target);
+    error.textContent = "";
+    button.disabled = true;
+    try {
+      const result = await post("/api/auth/verify", { phone: auth.phone, code: $("#code").value });
+      if (result.needsProfile) showAuthStep("profile");
+      else await enterApp();
+    } catch (ex) {
+      error.textContent = ex.message;
+      $("#code").select();
+    } finally {
+      button.disabled = false;
+    }
+  });
+
+  $("[data-resend]").addEventListener("click", async (e) => {
+    const error = $("[data-error]", $("#code-form"));
+    e.target.disabled = true;
+    try {
+      await requestCode(error);
+      toast("Another code is on its way.");
+    } catch (ex) {
+      error.textContent = ex.message;
+    } finally {
+      // A short cool-off, so nobody taps their way into the per-number ceiling.
+      setTimeout(() => { e.target.disabled = false; }, 15000);
+    }
+  });
+
+  $("[data-restart]").addEventListener("click", () => {
+    auth.phone = null;
+    $("[data-error]", $("#code-form")).textContent = "";
+    showAuthStep("phone");
+  });
+
+  $("#profile-form").addEventListener("submit", async (e) => {
     e.preventDefault();
     const form = new FormData(e.target);
-    const err = $("[data-error]", e.target);
-    err.textContent = "";
-    if (!state.registerCity) { err.textContent = "Pick the city you are standing in."; return; }
+    const error = $("[data-error]", e.target);
+    error.textContent = "";
+    if (!state.registerCity) { error.textContent = "Pick the city you are standing in."; return; }
     try {
-      await post("/api/register", {
-        handle: form.get("handle"),
-        password: form.get("password"),
-        city: state.registerCity,
-      });
+      await post("/api/auth/enrol", { handle: form.get("handle"), city: state.registerCity });
       await enterApp();
-    } catch (ex) { err.textContent = ex.message; }
+    } catch (ex) {
+      error.textContent = ex.message;
+    }
   });
 }
 
