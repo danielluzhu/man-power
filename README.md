@@ -4,8 +4,10 @@ Carrier-pigeon messaging, except the courier is the fastest human alive.
 
 Send a message and it does not appear in the recipient's inbox until enough real
 time has passed for a world-record athlete to have physically covered the
-distance between you — running every landmass, swimming every sea. New York to
-London takes about **31 days**. There is no way to hurry it.
+distance between you — running every landmass, swimming every sea, over real
+terrain, by the fastest route they could take. New York to London takes about
+**23 days**, and the courier goes by way of Greenland. There is no way to hurry
+it.
 
 **→ [Time a journey yourself](https://danielluzhu.github.io/man-power/)** — the
 project site runs the real routing engine in your browser, no server involved.
@@ -20,12 +22,14 @@ A carrier pigeon flies at roughly 80 km/h. A human does not. This app takes that
 premise seriously and asks what messaging would feel like if the fastest person
 who has ever lived had to carry every message by hand.
 
-So a message is not transmitted. It is **carried**. The server computes the
-great-circle route between sender and recipient, splits it into legs of land and
-water, times each leg against the world record for that distance and surface,
-and seals the message until the sum of those legs has elapsed. Until then the
-recipient can watch the courier's position on a globe and see how far they have
-left — but the body of the message is not on their machine at all.
+So a message is not transmitted. It is **carried**. The server searches for the
+fastest way across the world between sender and recipient — over mountains,
+around them, along coastlines, across straits — splits that path into legs of
+land and water, times each leg against the world record for its distance and
+surface with terrain applied along the way, and seals the message until the sum
+of those legs has elapsed. Until then the recipient can watch the courier's
+position on a globe and see how far they have left, but the body of the message
+is not on their machine at all.
 
 ## The pace model
 
@@ -70,21 +74,84 @@ a longer journey could be delivered sooner than a shorter one along the same
 route. They are left off, and `assertMonotonic()` fails at import time if the
 ladder ever stops being strictly decreasing in speed.
 
-## How a route is built
+## The route the courier takes
 
-1. Sample the great circle between the two points every 0.5–10 km.
-2. Classify each sample against a land/water bitmap rasterized from Natural
-   Earth 1:50m coastlines at 0.1° (3600 × 1800, 791 KB).
-3. Group consecutive same-surface samples into legs, bisecting each surface
-   change down to ~50 m so crossings land on the actual coast.
-4. Time each leg independently against its own record and sum.
+Not the shortest path — the **soonest**. A least-time search over a grid of the
+world, where each step costs whatever it costs to cross.
+
+That single objective produces every behaviour worth having, none of it
+special-cased:
+
+| Route | What it does | Result |
+|---|---|---|
+| Madrid → Casablanca | crosses at Gibraltar instead of swimming wide | 328 km of swimming becomes 26 km; **41% faster** |
+| New York → London | hops Baffin Island, Greenland and Iceland | no open-water leg over 844 km; **25% faster** |
+| Lima → New York | hugs the Americas rather than cutting the Caribbean | **36% faster** |
+| Delhi → Beijing | rounds the Himalaya through the Tarim Basin | 6,000 m less climbing |
+| New York → Los Angeles | nothing worth going around | the straight line, unchanged |
+
+Swimming is 3.4× slower than running, so a route will go hundreds of kilometres
+out of its way to find a narrow crossing. Climbing costs time and thin air costs
+more, so it prefers to go around a range than over it.
+
+### How it works
+
+1. **Plan** on a 0.2° grid (1800 × 900 cells) with A*, where every step is
+   priced in seconds — flat ground, a mountainside, or open water.
+2. **Measure** the chosen path against the original 0.1° mask and elevation
+   data, so the search stays cheap but the reported numbers keep their
+   resolution. Coast crossings are bisected to ~50 m.
+3. **Time** each leg against the world record for *its* distance, with gradient
+   and altitude applied segment by segment along it.
 
 Because legs are timed independently, a 600 m river crossing is swum at 800 m
-pace while the 4000 km either side of it is run at marathon pace. The app shows
-you the full itinerary, leg by leg, with the record governing each one.
+pace while the 4000 km either side is run at marathon pace. The app shows the
+full itinerary leg by leg, with the record governing each one and the climbing
+it involves.
+
+Three details make the search work:
+
+- **The heuristic.** Plain A* is hopeless here — a straight-line heuristic
+  divided by top speed underestimates ocean crossings fourfold, so it fans out
+  across an entire ocean before committing. The heuristic instead comes from a
+  full Dijkstra run backwards from the destination over a 1° grid (64,800 cells,
+  a few milliseconds), built optimistically so it stays admissible. It knows
+  where the land bridges are.
+- **Sixteen neighbours, not eight.** Eight restricts travel to multiples of 45°,
+  and the resulting staircase runs up to 8.2% longer than the line it
+  approximates — enough to lose to a plain straight line on a flat continental
+  crossing. Sixteen headings cut that to 2.6%.
+- **String pulling.** A final pass tests whether skipping ahead is faster,
+  measured with the same model that times the finished route, so it can only
+  improve the answer.
+
+Together these earn the invariant the test suite enforces: **a planned route is
+never slower than the direct line.** Before these fixes it lost by up to 5%.
 
 Endpoints are always treated as land — cities are on land, but a coastal one can
 fall in a water cell at this resolution.
+
+## What the ground does to the pace
+
+Two multipliers on flat-ground running speed.
+
+**Gradient** uses Minetti et al. (2002), *Energy cost of walking and running at
+extreme uphill and downhill slopes*, which fits the metabolic cost of running as
+a quintic in slope. Holding metabolic power constant turns that into a speed
+multiplier. Taken literally it says a 10% descent is run 1.67× faster than the
+flat; no runner sustains that, so the downhill bonus is capped at 1.15×. Uphill
+is left uncapped, because there the metabolic limit really is the binding one.
+
+**Altitude** costs about 1% of VO2max per 100 m above 1500 m — the standard rule
+of thumb. This is what makes a high plateau expensive rather than merely long,
+and why a route will detour around one.
+
+Both are deliberately modest. At 0.1° a cell's elevation is an 11 km average,
+which smooths the Himalaya into a 5% grade rather than a wall.
+
+Elevation comes from ETOPO1, resampled to exactly the cell centres of the land
+mask. Ocean is stored as zero rather than bathymetry — a swimmer is on the
+surface — which also lets 12.4 MB of grid gzip down to 2.95 MB.
 
 ## The globe
 
@@ -156,7 +223,7 @@ sudo systemctl restart man-power   # after a code change
 ### Tests
 
 ```bash
-bun test                   # pace model and routing invariants
+bun test                   # pace model, terrain physics, routing invariants
 bun run test:browser       # drives the real app in headless Chromium
 ```
 
@@ -170,7 +237,9 @@ search that could not find "Zürich" if you typed "Zurich".
 ```
 server.js              HTTP server and JSON API
 src/records.js         world-record ladders and the pace curve
-src/geo.js             great-circle routing, land/water leg splitting
+src/geo.js             plans a route, then measures and times it
+src/router.js          least-time A* pathfinding over the world grid
+src/terrain.js         gradient and altitude physics, elevation grid
 src/sphere.js          pure great-circle math, shared with the browser
 src/db.js              SQLite storage
 public/globe.js        orthographic globe renderer
@@ -189,10 +258,13 @@ and the clock beside it are computed by the same code that set the arrival time.
   1:110m land polygons (public domain).
 - Cities: [GeoNames](https://www.geonames.org/) `cities15000` — 34,125 cities
   over 15,000 people (CC BY 4.0).
+- Elevation: [ETOPO1](https://www.ncei.noaa.gov/products/etopo-global-relief-model)
+  (NOAA), fetched via ERDDAP at exactly the grid's cell centres.
 
 ## Caveats, cheerfully admitted
 
-The courier runs great circles, so they run straight over the Himalayas and
-through the Darién Gap without slowing down. They do not sleep, eat, or wait for
-weather. Ocean currents do not exist. And they hold marathon world-record pace
-for six thousand kilometres, which is the whole joke.
+The courier goes around mountains but not around anything else: no roads, no
+borders, no rivers, no jungle, no ice. They do not sleep, eat, or wait for
+weather, and ocean currents do not exist. Terrain is averaged over 11 km cells,
+so real gradients are gentler here than underfoot. And they hold marathon
+world-record pace for six thousand kilometres, which is the whole joke.
