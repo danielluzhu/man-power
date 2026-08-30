@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Man Power — messaging at the speed of the fastest human alive</title>
-<meta name="description" content="Carrier pigeon messaging, except the courier is the fastest human alive. Work out how long a message takes when someone has to run and swim it — at world-record pace the whole way.">
+<meta name="description" content="Carrier pigeon messaging, except the courier is the fastest human alive. Work out how long a message takes when someone has to run and swim it — over real terrain, by the fastest route, at world-record pace the whole way.">
 
 <meta property="og:title" content="Man Power — messaging at human speed">
 <meta property="og:description" content="Your message is not transmitted. It is carried — run across every landmass, swum across every sea, at world-record pace.">
@@ -42,9 +42,10 @@
     <h2>How long would it take on foot?</h2>
     <p>
       This runs the real routing engine — the same world-record ladder, the same
-      coastline data, the same great-circle leg splitting the app uses. Nothing
-      is precomputed and there is no server involved; your browser is doing the
-      whole thing.
+      coastlines, the same elevation data and the same pathfinding the app uses.
+      Nothing is precomputed and there is no server involved: your browser
+      searches a 1.6-million-cell grid for the fastest way across the world,
+      every time you change a city.
     </p>
   </div>
 
@@ -91,29 +92,33 @@
   <ol class="steps">
     <li>
       <span class="steps__n">1</span>
-      <h3>Draw the great circle</h3>
+      <h3>Search for the fastest way</h3>
       <p>
-        The shortest path over a sphere between the two points, sampled every
-        half-kilometre to ten kilometres depending on its length.
+        Not the shortest — the <em>soonest</em>. A least-time search over a grid
+        of the world, where every step costs whatever it costs to cross: flat
+        ground, a mountainside, or open water.
       </p>
     </li>
     <li>
       <span class="steps__n">2</span>
-      <h3>Split land from water</h3>
+      <h3>Let the cost do the deciding</h3>
       <p>
-        Each sample is tested against a coastline bitmap rasterized from Natural
-        Earth data. Runs of the same surface become legs, and every crossing is
-        bisected down to about fifty metres so it lands on the real coast.
+        Swimming is three and a half times slower than running, so a route will
+        go hundreds of kilometres out of its way to cross at a strait. Climbing
+        costs time and thin air costs more, so it rounds mountain ranges rather
+        than going over them. None of that is a rule — it all falls out of
+        arriving soonest.
       </p>
     </li>
     <li>
       <span class="steps__n">3</span>
       <h3>Time each leg on its own record</h3>
       <p>
-        A leg is timed against the world record for <em>its</em> distance, not
-        the journey's. So a six-hundred-metre river crossing is swum at 800 m
-        pace while the four thousand kilometres either side are run at marathon
-        pace.
+        The chosen path is split where it meets a coast, and each leg timed
+        against the world record for <em>its</em> distance — a six-hundred-metre
+        river crossing swum at 800 m pace, the four thousand kilometres either
+        side run at marathon pace, with gradient and altitude applied along the
+        way.
       </p>
     </li>
   </ol>
@@ -130,6 +135,18 @@
     records, pace is interpolated along the endurance curve.
   </p>
   <div class="records__tables" id="records"></div>
+
+  <aside class="aside">
+    <h3>What the ground does to the pace</h3>
+    <p>
+      Gradient uses Minetti's measurements of the metabolic cost of running on
+      slopes, converted to a speed at constant effort — with the downhill bonus
+      capped, because nobody actually runs a descent 1.67 times faster than the
+      flat however much energy it saves. Altitude costs about 1% of performance
+      per 100 m above 1500 m, which is what makes a high plateau something to go
+      around rather than merely something long.
+    </p>
+  </aside>
 
   <aside class="aside">
     <h3>Three records deliberately left out</h3>
@@ -179,10 +196,10 @@ sudo deploy/install.sh       <span class="c"># restarts on failure, starts on bo
     (CC BY 4.0).
   </p>
   <p class="foot__caveat">
-    The courier runs great circles, so they go straight over the Himalayas and
-    through the Darién Gap without slowing down. They do not sleep, eat, or wait
-    for weather. Ocean currents do not exist. And they hold marathon world-record
-    pace for six thousand kilometres, which is the whole joke.
+    The courier goes around mountains but not around anything else: no roads, no
+    borders, no rivers worth mentioning, no jungle. They do not sleep, eat, or
+    wait for weather, and ocean currents do not exist. And they hold marathon
+    world-record pace for six thousand kilometres, which is the whole joke.
   </p>
   <p><a href="https://github.com/danielluzhu/man-power">danielluzhu/man-power</a></p>
 </footer>

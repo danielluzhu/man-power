@@ -10,6 +10,8 @@
 
 import { runSeconds, swimSeconds, runRecordFor, swimRecordFor } from "./records.js";
 import { haversine, interpolate, positionAt } from "./sphere.js";
+import { terrainFactor } from "./terrain.js";
+import { planPath, polylineLength, PLANNING_RUN_SPEED, PLANNING_SWIM_SPEED } from "./router.js";
 
 export { haversine, interpolate, positionAt, EARTH_RADIUS } from "./sphere.js";
 
@@ -41,34 +43,40 @@ export class LandMask {
 }
 
 /**
- * Sampling interval. Fine enough to catch an isthmus or a strait, coarse
- * enough that a transpacific route is still ~1000 samples rather than a
- * million.
+ * Sampling interval along the planned path. Fine enough to catch an isthmus or
+ * a strait, coarse enough that a transpacific route is a few thousand samples
+ * rather than a million.
  */
 function stepFor(totalMetres) {
-  return Math.min(10000, Math.max(500, totalMetres / 1000));
+  return Math.min(5000, Math.max(400, totalMetres / 2500));
 }
 
 /**
- * Where exactly does the surface change between two samples? Bisect down to
- * ~50 m so coastline crossings land on the coast rather than on a sample
- * boundary up to 10 km inland.
+ * Walk a polyline, emitting evenly spaced points along it. The router returns
+ * a sparse path; timing and surface classification need it dense.
  */
-function refineCrossing(lat1, lon1, lat2, lon2, fLo, fHi, landAtLo, mask) {
-  let lo = fLo, hi = fHi;
-  const spanMetres = haversine(lat1, lon1, lat2, lon2) * (fHi - fLo);
-  const iterations = Math.min(12, Math.max(1, Math.ceil(Math.log2(spanMetres / 50))));
-  for (let i = 0; i < iterations; i++) {
-    const mid = (lo + hi) / 2;
-    const p = interpolate(lat1, lon1, lat2, lon2, mid);
-    if (mask.isLand(p.lat, p.lon) === landAtLo) lo = mid;
-    else hi = mid;
+function densify(path, step) {
+  const points = [{ ...path[0], travelled: 0 }];
+  let travelled = 0;
+
+  for (let i = 1; i < path.length; i++) {
+    const a = path[i - 1];
+    const b = path[i];
+    const span = haversine(a.lat, a.lon, b.lat, b.lon);
+    if (span === 0) continue;
+
+    const divisions = Math.max(1, Math.ceil(span / step));
+    for (let d = 1; d <= divisions; d++) {
+      const p = interpolate(a.lat, a.lon, b.lat, b.lon, d / divisions);
+      travelled += span / divisions;
+      points.push({ ...p, travelled });
+    }
   }
-  return (lo + hi) / 2;
+  return points;
 }
 
 /** Thin a polyline down to at most `max` points, always keeping both ends. */
-function decimate(points, max = 48) {
+function decimate(points, max = 64) {
   if (points.length <= max) return points;
   const out = [];
   for (let i = 0; i < max - 1; i++) out.push(points[Math.round((i * (points.length - 1)) / (max - 1))]);
@@ -77,74 +85,211 @@ function decimate(points, max = 48) {
 }
 
 /**
+ * Time one leg.
+ *
+ * The world record that governs a leg is chosen from the leg's total distance,
+ * as before — a 13 km run is paced on the 15 km record whether it is flat or
+ * not. Terrain then modulates that pace segment by segment along the leg, so a
+ * climb in the middle slows only the part that climbs.
+ *
+ * Water legs are flat by definition and take the swimming pace unmodified.
+ */
+function timeLeg(leg, samples, elevation) {
+  if (leg.mode === "swim") {
+    leg.seconds = swimSeconds(leg.metres);
+    leg.record = swimRecordFor(leg.metres);
+    leg.ascent = 0;
+    leg.descent = 0;
+    leg.peak = 0;
+    return;
+  }
+
+  leg.record = runRecordFor(leg.metres);
+  const flatSpeed = leg.metres / runSeconds(leg.metres);
+
+  let seconds = 0, ascent = 0, descent = 0, peak = -Infinity;
+  let previous = samples[0];
+  let previousHeight = elevation.at(previous.lat, previous.lon);
+
+  for (let i = 1; i < samples.length; i++) {
+    const point = samples[i];
+    const height = elevation.at(point.lat, point.lon);
+    const run = haversine(previous.lat, previous.lon, point.lat, point.lon);
+
+    if (run > 0) {
+      const rise = height - previousHeight;
+      const factor = terrainFactor(rise, run, (height + previousHeight) / 2);
+      seconds += run / (flatSpeed * factor);
+      if (rise > 0) ascent += rise;
+      else descent -= rise;
+    }
+    if (height > peak) peak = height;
+
+    previous = point;
+    previousHeight = height;
+  }
+
+  leg.seconds = seconds;
+  leg.ascent = Math.round(ascent);
+  leg.descent = Math.round(descent);
+  leg.peak = Math.max(0, Math.round(peak === -Infinity ? 0 : peak));
+}
+
+/**
+ * Seconds to cross straight from `a` to `b`, using the planner's reference
+ * paces. This is the yardstick the string-pulling pass measures shortcuts
+ * against, so it deliberately models the ground the same way the router does —
+ * surface from the fine mask, terrain from the elevation grid — rather than
+ * using the distance-dependent record ladder, which needs whole legs to apply.
+ */
+function referenceSeconds(world, a, b, sampleMetres = 5000) {
+  const { mask, elevation } = world;
+  const span = haversine(a.lat, a.lon, b.lat, b.lon);
+  if (span === 0) return 0;
+
+  const steps = Math.max(1, Math.ceil(span / sampleMetres));
+  const stride = span / steps;
+
+  let seconds = 0;
+  let prev = a;
+  let prevLand = mask.isLand(a.lat, a.lon);
+  let prevHeight = elevation.at(a.lat, a.lon);
+
+  for (let k = 1; k <= steps; k++) {
+    const p = k === steps ? b : interpolate(a.lat, a.lon, b.lat, b.lon, k / steps);
+    const land = mask.isLand(p.lat, p.lon);
+    const height = elevation.at(p.lat, p.lon);
+
+    if (land && prevLand) {
+      const factor = terrainFactor(height - prevHeight, stride, (height + prevHeight) / 2);
+      seconds += stride / (PLANNING_RUN_SPEED * factor);
+    } else {
+      seconds += stride / PLANNING_SWIM_SPEED;
+    }
+
+    prev = p;
+    prevLand = land;
+    prevHeight = height;
+  }
+  return seconds;
+}
+
+/**
  * Build the full itinerary between two coordinates.
  *
- * Returns total distance and duration plus the leg breakdown, where each leg
- * carries its own surface, distance, duration, governing world record and a
- * decimated polyline for drawing.
+ * `world` carries the fine land mask, the elevation grid and the two routing
+ * grids. The courier's path is planned first, then measured: surfaces are
+ * classified against the fine 0.1° mask along the planned line, consecutive
+ * samples of the same surface become legs, and each leg is timed on its own
+ * world record with terrain applied along it.
  */
-export function buildRoute(mask, from, to) {
-  const total = haversine(from.lat, from.lon, to.lat, to.lon);
+export function buildRoute(world, from, to) {
+  const { mask, elevation, grid, coarse } = world;
 
-  if (total < 1) {
-    return { totalMetres: 0, totalSeconds: 0, runMetres: 0, swimMetres: 0, legs: [] };
+  const direct = haversine(from.lat, from.lon, to.lat, to.lon);
+  if (direct < 1) {
+    return {
+      totalMetres: 0, totalSeconds: 0, runMetres: 0, swimMetres: 0,
+      ascent: 0, descent: 0, peak: 0, directMetres: 0, legs: [], path: [],
+    };
   }
 
-  const step = stepFor(total);
-  const sampleCount = Math.max(2, Math.ceil(total / step) + 1);
+  // Plan the route; fall back to the great circle if the search cannot find one.
+  const planned = grid && coarse
+    ? planPath(grid, coarse, from, to, (a, b) => referenceSeconds(world, a, b))
+    : null;
+  const path = planned ? planned.path : [{ ...from }, { ...to }];
 
-  // Classify every sample. Endpoints are forced to land: they are cities, and
-  // a coastal city can otherwise fall in a water cell at this resolution.
-  const samples = [];
-  for (let i = 0; i < sampleCount; i++) {
-    const f = i / (sampleCount - 1);
-    const p = interpolate(from.lat, from.lon, to.lat, to.lon, f);
-    const land = i === 0 || i === sampleCount - 1 ? true : mask.isLand(p.lat, p.lon);
-    samples.push({ f, ...p, land });
+  const total = polylineLength(path);
+  const samples = densify(path, stepFor(total));
+
+  // Endpoints are forced to land: they are cities, and a coastal one can fall
+  // in a water cell even at this resolution.
+  for (let i = 0; i < samples.length; i++) {
+    const s = samples[i];
+    s.land = i === 0 || i === samples.length - 1 ? true : mask.isLand(s.lat, s.lon);
   }
 
-  // Walk the samples, cutting a new leg wherever the surface changes.
-  const legs = [];
-  let legStartF = 0;
-  let legLand = samples[0].land;
-  let points = [{ lat: samples[0].lat, lon: samples[0].lon }];
-
-  const closeLeg = (endF, endPoint) => {
-    const metres = total * (endF - legStartF);
-    points.push(endPoint);
-    if (metres > 0) {
-      legs.push({ land: legLand, metres, startF: legStartF, endF, points: decimate(points) });
+  /**
+   * Where between two samples does the surface actually change? Bisecting to
+   * about fifty metres puts the crossing on the coast rather than up to a few
+   * kilometres inland at whichever sample happened to notice.
+   */
+  const refineBoundary = (a, b) => {
+    let lo = 0, hi = 1;
+    const span = b.travelled - a.travelled;
+    const rounds = Math.min(12, Math.max(1, Math.ceil(Math.log2(span / 50))));
+    for (let n = 0; n < rounds; n++) {
+      const mid = (lo + hi) / 2;
+      const p = interpolate(a.lat, a.lon, b.lat, b.lon, mid);
+      if (mask.isLand(p.lat, p.lon) === a.land) lo = mid;
+      else hi = mid;
     }
+    const t = (lo + hi) / 2;
+    const p = interpolate(a.lat, a.lon, b.lat, b.lon, t);
+    return { ...p, travelled: a.travelled + span * t, land: a.land };
+  };
+
+  // Cut a new leg wherever the surface changes, splitting at the refined coast.
+  const legs = [];
+  let current = [samples[0]];
+  let mode = samples[0].land;
+
+  const closeLeg = (endPoint) => {
+    const slice = endPoint ? [...current, endPoint] : current;
+    const metres = slice[slice.length - 1].travelled - slice[0].travelled;
+    if (metres <= 0) return;
+    legs.push({
+      land: mode,
+      mode: mode ? "run" : "swim",
+      metres,
+      startF: slice[0].travelled / total,
+      endF: slice[slice.length - 1].travelled / total,
+      samples: slice,
+      points: decimate(slice.map((p) => ({ lat: p.lat, lon: p.lon }))),
+    });
   };
 
   for (let i = 1; i < samples.length; i++) {
-    const s = samples[i];
-    if (s.land === legLand) {
-      points.push({ lat: s.lat, lon: s.lon });
-      continue;
-    }
-    const prev = samples[i - 1];
-    const cross = refineCrossing(from.lat, from.lon, to.lat, to.lon, prev.f, s.f, prev.land, mask);
-    const crossPoint = interpolate(from.lat, from.lon, to.lat, to.lon, cross);
-    closeLeg(cross, crossPoint);
-    legStartF = cross;
-    legLand = s.land;
-    points = [crossPoint, { lat: s.lat, lon: s.lon }];
-  }
-  closeLeg(1, { lat: samples[samples.length - 1].lat, lon: samples[samples.length - 1].lon });
+    if (samples[i].land === mode) { current.push(samples[i]); continue; }
 
-  // Time each leg against its own record, and accumulate.
-  let totalSeconds = 0, runMetres = 0, swimMetres = 0;
+    const boundary = refineBoundary(samples[i - 1], samples[i]);
+    closeLeg(boundary);
+    // The new leg starts at the same boundary point, so the legs stay
+    // contiguous, but takes its surface from the sample that changed.
+    mode = samples[i].land;
+    current = [{ ...boundary, land: mode }, samples[i]];
+  }
+  closeLeg(null);
+
+  let totalSeconds = 0, runMetres = 0, swimMetres = 0, ascent = 0, descent = 0, peak = 0;
   for (const leg of legs) {
-    leg.mode = leg.land ? "run" : "swim";
-    leg.seconds = leg.land ? runSeconds(leg.metres) : swimSeconds(leg.metres);
-    leg.record = leg.land ? runRecordFor(leg.metres) : swimRecordFor(leg.metres);
+    timeLeg(leg, leg.samples, elevation);
+    delete leg.samples;
+
     leg.startSeconds = totalSeconds;
     totalSeconds += leg.seconds;
     leg.endSeconds = totalSeconds;
+
     if (leg.land) runMetres += leg.metres;
     else swimMetres += leg.metres;
+    ascent += leg.ascent;
+    descent += leg.descent;
+    if (leg.peak > peak) peak = leg.peak;
   }
 
-  return { totalMetres: total, totalSeconds, runMetres, swimMetres, legs };
+  return {
+    totalMetres: total,
+    totalSeconds,
+    runMetres,
+    swimMetres,
+    ascent,
+    descent,
+    peak,
+    directMetres: direct,
+    detour: total / direct,
+    legs,
+    path,
+    expanded: planned?.expanded ?? 0,
+  };
 }

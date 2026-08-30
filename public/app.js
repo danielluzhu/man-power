@@ -86,6 +86,18 @@ function relative(timestamp) {
   return "just now";
 }
 
+/** Vertical metres climbed. */
+function climb(metres) {
+  if (!metres) return "flat";
+  return metres >= 10000 ? `${Math.round(metres / 1000)},000 m` : `${metres.toLocaleString()} m`;
+}
+
+/** Enough climbing to be worth comparing to something. */
+function everests(metres) {
+  const n = metres / 8849;
+  return n >= 1.5 ? `${n.toFixed(1)}× Everest` : "";
+}
+
 function distance(metres) {
   if (metres < 1000) return `${Math.round(metres)} m`;
   const km = metres / 1000;
@@ -212,8 +224,7 @@ function midpoint(a, b) {
 /** Live courier position for a message, from its route and the wall clock. */
 function courierNow(msg) {
   if (!msg?.route || msg.arrived) return null;
-  const elapsed = (Date.now() - msg.sentAt) / 1000;
-  return positionAt(msg.route, elapsed, msg.from, msg.to);
+  return positionAt(msg.route, (Date.now() - msg.sentAt) / 1000);
 }
 
 function paintGlobe() {
@@ -269,14 +280,19 @@ function renderQuote() {
     return;
   }
   const r = q.route;
+  const detour = r.detour > 1.02
+    ? `${distance(r.totalMetres)} — ${((r.detour - 1) * 100).toFixed(0)}% further than the direct line`
+    : `${distance(r.totalMetres)}, near enough the direct line`;
+
   box.className = "quote";
   box.innerHTML = `
     <span class="quote__eta-label">${escapeHtml(q.from.city)} → ${escapeHtml(q.to.city)}</span>
     <div class="quote__eta">${duration(r.totalSeconds)}</div>
+    <div class="quote__detour">${detour}</div>
     <div class="quote__split">
       <span><b class="is-run">run</b> ${distance(r.runMetres)}</span>
       <span><b class="is-swim">swim</b> ${distance(r.swimMetres)}</span>
-      <span>${r.legs.length} leg${r.legs.length === 1 ? "" : "s"}</span>
+      <span><b class="is-climb">climb</b> ${climb(r.ascent)}${everests(r.ascent) ? ` · ${everests(r.ascent)}` : ""}</span>
     </div>`;
 }
 
@@ -345,6 +361,9 @@ function renderHud() {
   $("[data-hud-distance]").textContent = distance(msg.totalMetres);
   $("[data-hud-run]").textContent = distance(msg.runMetres);
   $("[data-hud-swim]").textContent = distance(msg.swimMetres);
+  $("[data-hud-climb]").innerHTML =
+    `${climb(msg.ascent)}${everests(msg.ascent) ? `<span class="stat__note">${everests(msg.ascent)}</span>` : ""}`;
+  $("[data-hud-peak]").textContent = msg.peak ? `${msg.peak.toLocaleString()} m` : "sea level";
 
   const body = $("[data-hud-body]");
   if (msg.body) {
@@ -363,6 +382,7 @@ function renderHud() {
         <span class="${leg.mode === "swim" ? "is-swim" : "is-run"}">${leg.mode}</span>
         ${distance(leg.metres)} · ${duration(leg.seconds)}
         <span class="legs__rec">at ${escapeHtml(leg.record.label)} pace — ${escapeHtml(leg.record.athlete)}</span>
+        ${leg.ascent > 200 ? `<span class="legs__rec is-climb">climbing ${climb(leg.ascent)}, peak ${leg.peak.toLocaleString()} m</span>` : ""}
       </li>`)
     .join("");
 

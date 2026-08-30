@@ -15,6 +15,7 @@
 
   --run:         #f0b429;
   --swim:        #38bdf8;
+  --climb:       #c084fc;
   --danger:      #f87171;
 
   --radius:      10px;
@@ -281,8 +282,15 @@ textarea { resize: vertical; min-height: 6rem; line-height: 1.6; }
   font: 12px var(--mono);
 }
 .quote__split b { font-weight: 600; }
-.is-run  { color: var(--run); }
-.is-swim { color: var(--swim); }
+.is-run   { color: var(--run); }
+.is-swim  { color: var(--swim); }
+.is-climb { color: var(--climb); }
+
+.quote__detour {
+  font: 11.5px var(--mono);
+  color: var(--ink-faint);
+  margin-top: .15rem;
+}
 
 /* ─────────────────────────────── the lists ──────────────────────────── */
 
@@ -443,6 +451,7 @@ textarea { resize: vertical; min-height: 6rem; line-height: 1.6; }
   color: var(--ink-faint);
 }
 .stat dd { margin: 0; font: 13px var(--mono); font-variant-numeric: tabular-nums; }
+.stat__note { display: block; font-size: 10.5px; color: var(--ink-faint); }
 
 .hud__body {
   margin-top: .9rem; padding-top: .9rem;

@@ -9,6 +9,8 @@
 
 import { LandMask, buildRoute } from "./lib/geo.js";
 import { RUN_LADDER, SWIM_LADDER } from "./lib/records.js";
+import { Elevation } from "./lib/terrain.js";
+import { RoutingGrid } from "./lib/router.js";
 import { Globe } from "./lib/globe.js";
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -49,12 +51,23 @@ const escapeHtml = (str) =>
   String(str).replace(/[&<>"']/g, (c) =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
+/** Vertical metres climbed, and what that is worth comparing to. */
+function climb(metres) {
+  if (!metres) return "flat";
+  return metres >= 10000 ? `${Math.round(metres / 1000)},000 m` : `${metres.toLocaleString()} m`;
+}
+
+function everests(metres) {
+  const n = metres / 8849;
+  return n >= 1.5 ? `${n.toFixed(1)}× Everest` : "";
+}
+
 /** Strip diacritics so "Reykjavik" finds "Reykjavík". */
 const fold = (str) => str.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
 
 /* ──────────────────────────────── state ──────────────────────────────── */
 
-let mask, globe, cities, countries, folded;
+let world, globe, cities, countries, folded;
 const ends = { from: null, to: null };
 
 const spin = { lat: 25, lon: -20, targetLat: 25, targetLon: -20 };
@@ -172,7 +185,9 @@ function recompute() {
     return;
   }
 
-  const route = buildRoute(mask, from, to);
+  const started = performance.now();
+  const route = buildRoute(world, from, to);
+  const took = Math.round(performance.now() - started);
   currentRoute = { route, from, to };
 
   const mid = midpoint(from, to);
@@ -180,11 +195,15 @@ function recompute() {
 
   const runPct = (route.runMetres / route.totalMetres) * 100;
   const swimPct = 100 - runPct;
+  const detour = route.detour > 1.02
+    ? `${((route.detour - 1) * 100).toFixed(0)}% further than the direct line, and faster for it`
+    : `essentially the direct line — nothing worth going around`;
 
   box.innerHTML = `
     <div class="result__route">${escapeHtml(from.name.toUpperCase())} → ${escapeHtml(to.name.toUpperCase())}</div>
     <div class="result__time">${duration(route.totalSeconds)}</div>
-    <div class="result__total">${distance(route.totalMetres)} · ${route.legs.length} leg${route.legs.length === 1 ? "" : "s"}</div>
+    <div class="result__total">${distance(route.totalMetres)} · ${route.legs.length} leg${route.legs.length === 1 ? "" : "s"} · planned in ${took} ms</div>
+    <div class="result__detour">${detour}</div>
 
     <div class="bar">
       <div class="bar__run" style="width:${runPct.toFixed(2)}%"></div>
@@ -193,6 +212,7 @@ function recompute() {
     <div class="split">
       <span><b class="is-run">run</b> ${distance(route.runMetres)}</span>
       <span><b class="is-swim">swim</b> ${distance(route.swimMetres)}</span>
+      <span><b class="is-climb">climb</b> ${climb(route.ascent)}${everests(route.ascent) ? ` · ${everests(route.ascent)}` : ""}</span>
     </div>
 
     <details class="legs">
@@ -203,6 +223,7 @@ function recompute() {
             <span class="${leg.mode === "swim" ? "is-swim" : "is-run"}">${leg.mode}</span>
             ${distance(leg.metres)} · ${duration(leg.seconds)}
             <span class="legs__rec">at ${escapeHtml(leg.record.label)} pace — ${escapeHtml(leg.record.athlete)}</span>
+            ${leg.ascent > 200 ? `<span class="legs__rec is-climb">climbing ${climb(leg.ascent)}, peak ${leg.peak.toLocaleString()} m</span>` : ""}
           </li>`).join("")}
       </ol>
     </details>`;
@@ -277,20 +298,41 @@ function startGlobe() {
   tick();
 }
 
+const progress = (message) => {
+  const box = $("#result");
+  if (box) box.innerHTML = `<p class="result__loading">${escapeHtml(message)}</p>`;
+};
+
 async function boot() {
-  const [maskBuffer, world, gazetteer] = await Promise.all([
+  progress("Loading coastlines and terrain…");
+
+  const [maskBuffer, elevationGz, outline, gazetteer] = await Promise.all([
     fetch("./data/landmask.bin").then((r) => r.arrayBuffer()),
+    fetch("./data/elevation.bin.gz").then((r) => r.arrayBuffer()),
     fetch("./data/world.json").then((r) => r.json()),
     fetch("./data/cities.json").then((r) => r.json()),
   ]);
 
-  mask = new LandMask(maskBuffer);
+  const mask = new LandMask(maskBuffer);
+  const elevation = await Elevation.fromGzip(elevationGz);
+
   cities = gazetteer.cities;
   countries = gazetteer.countries;
   folded = cities.map((c) => fold(c[0]));
-  window.__world = world;
+  window.__world = outline;
 
   startGlobe();
+  progress("Building the routing grid…");
+
+  // Yield first, so the globe paints before this blocks the thread for a moment.
+  await new Promise((r) => setTimeout(r, 30));
+  world = {
+    mask,
+    elevation,
+    grid: RoutingGrid.downsample(mask, elevation, 0.2),
+    coarse: RoutingGrid.downsample(mask, elevation, 1.0, { optimistic: true }),
+  };
+
   renderRecords();
 
   const pickers = {

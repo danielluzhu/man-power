@@ -9,11 +9,21 @@
 
 import { LandMask, buildRoute, positionAt } from "./src/geo.js";
 import { RUN_LADDER, SWIM_LADDER } from "./src/records.js";
+import { Elevation } from "./src/terrain.js";
+import { RoutingGrid } from "./src/router.js";
 import * as store from "./src/db.js";
 
 const PORT = Number(process.env.PORT) || 4321;
 
 const mask = await LandMask.load();
+const elevation = await Elevation.fromGzip(await Bun.file("data/elevation.bin.gz").arrayBuffer());
+
+// Planning happens on a 0.2 degree grid; the 1 degree grid is the relaxed one
+// the A* heuristic is drawn from. Both are derived once at boot.
+const grid = RoutingGrid.downsample(mask, elevation, 0.2);
+const coarse = RoutingGrid.downsample(mask, elevation, 1.0, { optimistic: true });
+const world = { mask, elevation, grid, coarse };
+
 const db = store.openDatabase();
 const { cities, countries } = await Bun.file("data/cities.json").json();
 
@@ -27,7 +37,7 @@ const fold = (str) => str.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowe
  */
 const folded = cities.map((c) => fold(c[0]));
 
-console.log(`Land mask ${mask.width}×${mask.height} · ${cities.length} cities loaded`);
+console.log(`Land mask ${mask.width}×${mask.height} · elevation ${elevation.width}×${elevation.height} · routing ${grid.width}×${grid.height} · ${cities.length} cities`);
 
 /* ------------------------------------------------------------- helpers --- */
 
@@ -110,15 +120,17 @@ function serializeMessage(row, viewerId, { includeRoute = false } = {}) {
     runMetres: row.run_metres,
     swimMetres: row.swim_metres,
     totalSeconds: row.total_seconds,
+    ascent: route.ascent,
+    descent: route.descent,
+    peak: route.peak,
+    directMetres: route.directMetres,
+    detour: route.detour,
     body: arrived || isSender ? row.body : null,
     charCount: row.body.length,
   };
 
   if (!arrived) {
-    const elapsed = (Date.now() - row.sent_at) / 1000;
-    const from = { lat: row.from_lat, lon: row.from_lon };
-    const to = { lat: row.to_lat, lon: row.to_lon };
-    out.courier = positionAt(route, elapsed, from, to);
+    out.courier = positionAt(route, (Date.now() - row.sent_at) / 1000);
   }
   if (includeRoute) out.route = route;
   return out;
@@ -207,7 +219,7 @@ const routes = {
     const dest = resolveDestination(payload);
     if (dest.error) return fail(dest.error);
 
-    const route = buildRoute(mask, { lat: user.lat, lon: user.lon }, dest.point);
+    const route = buildRoute(world, { lat: user.lat, lon: user.lon }, dest.point);
     return json({
       from: { city: user.city, lat: user.lat, lon: user.lon },
       to: { city: dest.city, ...dest.point },
@@ -230,7 +242,7 @@ const routes = {
 
     const from = { lat: user.lat, lon: user.lon };
     const to = { lat: recipient.lat, lon: recipient.lon };
-    const route = buildRoute(mask, from, to);
+    const route = buildRoute(world, from, to);
     if (route.totalSeconds <= 0) return fail("You are both in the same place — just talk");
 
     const sentAt = Date.now();

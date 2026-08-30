@@ -15,11 +15,14 @@ const LIB_SOURCES = {
   "records.js": "src/records.js",
   "sphere.js": "src/sphere.js",
   "geo.js": "src/geo.js",
+  "terrain.js": "src/terrain.js",
+  "router.js": "src/router.js",
   "globe.js": "public/globe.js",
 };
 
 const DATA_SOURCES = {
   "landmask.bin": "data/landmask.bin",
+  "elevation.bin.gz": "data/elevation.bin.gz",
   "world.json": "public/world.json",
 };
 
