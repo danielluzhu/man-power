@@ -7,6 +7,9 @@ time has passed for a world-record athlete to have physically covered the
 distance between you — running every landmass, swimming every sea. New York to
 London takes about **31 days**. There is no way to hurry it.
 
+**→ [Time a journey yourself](https://danielluzhu.github.io/man-power/)** — the
+project site runs the real routing engine in your browser, no server involved.
+
 ![the courier, mid-Atlantic](docs/screenshot.png)
 
 ---
@@ -95,6 +98,22 @@ Coastline rings that straddle the limb are clipped with Sutherland-Hodgman in
 successive exit and entry points. (Without that arc the clip closes continents
 off with a straight chord, and Africa grows a flat edge.)
 
+## The project site
+
+<https://danielluzhu.github.io/man-power/>
+
+Published from `docs/` on `main`. It is not a brochure: it runs the *actual*
+routing engine client-side — the same ladder, the same coastline bitmap, the
+same leg splitting — so you can time any pair of cities without installing
+anything. The land mask is 47 KB gzipped, which makes that practical.
+
+`scripts/build-site.js` copies the real modules into `docs/lib/` on every build
+rather than keeping a parallel copy, so the site cannot drift from the app:
+
+```bash
+bun run build:site
+```
+
 ## Running it
 
 ```bash
@@ -106,11 +125,33 @@ The compiled datasets are committed, so it runs out of the box. To rebuild them
 from upstream sources:
 
 ```bash
-bun run build:data         # land mask, city gazetteer, world outline
+bun run build:data         # land mask, gazetteer, world outline, site assets
 ```
 
 You need **at least two couriers** for anything to happen — enlist a second one
 in a private window and write to yourself the long way round.
+
+### As a systemd service
+
+```bash
+sudo deploy/install.sh
+```
+
+Installs `deploy/man-power.service`, enables it for boot and waits for the port
+to actually answer before reporting success — printing the journal if it does
+not. The service runs as `ubuntu`, restarts on failure, and gives up only after
+five failures in a minute so a genuine crash loop surfaces rather than being
+restarted forever.
+
+It is sandboxed with `ProtectSystem=strict`: the app reads its datasets and
+writes exactly one SQLite database, so `/workspace/data` is the only writable
+path it has.
+
+```bash
+systemctl status man-power         # is it up?
+journalctl -u man-power -f         # follow the log
+sudo systemctl restart man-power   # after a code change
+```
 
 ### Tests
 
@@ -134,7 +175,9 @@ src/sphere.js          pure great-circle math, shared with the browser
 src/db.js              SQLite storage
 public/globe.js        orthographic globe renderer
 public/app.js          client application
-scripts/build-*.js     compile the datasets from upstream sources
+docs/                  the published project site (GitHub Pages)
+deploy/                systemd unit and installer
+scripts/build-*.js     compile the datasets and the site
 ```
 
 `src/sphere.js` is served to the browser at `/sphere.js` so the dot on the globe
