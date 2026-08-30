@@ -33,12 +33,16 @@ function fakeSubscription(endpoint) {
 }
 
 let db;
-let handles = 0;
-const courier = () =>
-  createUser(db, {
-    handle: `push-${++handles}-${Date.now()}`, password: "testtest",
+let enrolled = 0;
+const courier = () => {
+  // A number is the account now, so every courier needs a distinct one.
+  const n = ++enrolled;
+  return createUser(db, {
+    handle: `push-${n}-${Date.now()}`,
+    phone: `+3466${String(1_000_000 + n).slice(-7)}`,
     city: "Madrid", country: "Spain", lat: 40.4168, lon: -3.7038,
   });
+};
 
 /** A stand-in for the push service that records calls and can be made to fail. */
 function recorder(status = null) {
