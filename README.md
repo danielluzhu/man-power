@@ -316,6 +316,42 @@ durability needs a bucket; the S3 stanza is written and commented in
 `deploy/litestream.yml`, and credentials come from
 `/etc/man-power/litestream.env`, so nothing secret is committed.
 
+### Signing in
+
+Accounts are phone numbers. There are no passwords.
+
+Signing in and enlisting are one flow — a number, a code, and for a number
+nobody has used before, a handle and a home. That is partly kindness, and
+partly that a separate sign-up would answer *"is this number registered?"* for
+anyone who cared to ask.
+
+The number is the identity and never leaves the server: it is absent from every
+response about somebody else, and its owner sees only a masked form of their
+own.
+
+**Codes.** Six digits is a weak secret by construction, so: stored as an HMAC
+bound to the number, expiring in ten minutes, burned after five wrong guesses,
+cancelled when a new one is asked for, and compared in constant time. The
+attempt is counted *before* it is checked, so a crash mid-verify cannot buy a
+free guess.
+
+**SMS** goes through a swappable transport. With no credentials it writes codes
+to the journal, which makes the whole flow work on a development machine; set
+`TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` and `TWILIO_FROM` and it sends for
+real with nothing else changing. Half-configuring it is refused at startup —
+quietly falling back to printing codes in a log would be the worst possible
+outcome.
+
+**Numbers are normalised to E.164** with libphonenumber rather than a regular
+expression. Once a number is an identity, `+44 7911 123456`, `07911 123456` and
+`00447911123456` have to collapse to one account, or that person gets three and
+loses the messages in two.
+
+There is no migration from the password era: identity is now the number, and a
+password account has no number to become. An empty legacy table is rebuilt; one
+with accounts in it stops the server with an explanation rather than quietly
+destroying people.
+
 ### Telling people
 
 Arrival used to be evaluated only when someone loaded the page — fine for
@@ -342,16 +378,29 @@ database.
 
 ### Limits
 
-| Action | Ceiling | Keyed on |
-|---|---|---|
-| Enlist | 20 / hour | address |
-| Sign in | 10 / 15 min | address (successes forgiven) |
-| Send | 20 / hour | courier |
-| Quote a route | 60 / min | courier |
-| City search | 120 / min | address |
+| Action | Ceiling | Keyed on | Override |
+|---|---|---|---|
+| Request a code | 3 / hour | number | `LIMIT_CODE_PER_PHONE` |
+| Request a code | 15 / hour | address | `LIMIT_CODE_PER_HOST` |
+| Check a code | 10 / 15 min | number | `LIMIT_VERIFY_PER_PHONE` |
+| Check a code | 60 / 15 min | address | `LIMIT_VERIFY_PER_HOST` |
+| Enlist | 20 / hour | address | `LIMIT_REGISTER` |
+| Send | 20 / hour | courier | `LIMIT_SEND` |
+| Quote a route | 60 / min | courier | `LIMIT_PREVIEW` |
+| City search | 120 / min | address | `LIMIT_SEARCH` |
 
-Overridable with `LIMIT_REGISTER`, `LIMIT_LOGIN`, `LIMIT_SEND`, `LIMIT_PREVIEW`
-and `LIMIT_SEARCH`, so they can be tightened under abuse without a deploy. The
+Two of these are shaped by specific attacks rather than by taste.
+
+**Requesting a code costs money**, so pointing that endpoint at numbers an
+attacker controls turns a sign-in form into a bill. Hence a tight per-number
+ceiling as well as a per-address one.
+
+**Checking a code is keyed on the number first.** Keying it on the address alone
+means an office behind one NAT shares one allowance and locks itself out — which
+is exactly what happened to the test suite. Guessing is really bounded by the
+five attempts a single code allows; these limits exist to stop someone working
+through *numbers*, so the tight one belongs on the number and the address gets a
+looser backstop. The
 app trusts `X-Forwarded-For` because it runs behind a proxy; set `TRUST_PROXY=0`
 if it ever does not, or the header becomes a way to invent an address per
 request and walk past all of the above.
@@ -362,10 +411,11 @@ Three things are blocked on decisions or credentials rather than code.
 
 - **Off-machine backups.** One bucket and four environment variables away; see
   `deploy/litestream.yml`. Until then a lost machine is lost messages.
-- **A domain, TLS, and email.** A messaging service needs an address people can
-  return to weeks later. Email would also give account recovery, which handles
-  today have none of — forget your password and every message in flight is
-  gone.
+- **An SMS provider.** The whole sign-in flow works today with codes going to
+  the journal, which is fine for development and unusable in public — anyone who
+  can read the log can sign in as anyone. Three environment variables away.
+- **A domain and TLS.** A messaging service needs an address people can return
+  to weeks later.
 - **A moderation stance.** The product's rule is that nobody reads a message
   before it arrives, which is also what makes abuse hard: a recipient cannot
   report for three weeks, and a sealed message cannot be scanned. The server
@@ -416,6 +466,10 @@ src/clock.js           checks the time the whole product rests on
 src/delivery.js        notices arrivals and announces them
 src/push.js            web push notifications
 src/ratelimit.js       ceilings on enlisting, signing in and sending
+src/phone.js           E.164 normalisation — one person, one identity
+src/verification.js    SMS codes: issue, check, expire, burn
+src/sms.js             SMS transport (Twilio, or the journal in development)
+src/secrets.js         server keys that outlive a restart
 public/globe.js        orthographic globe renderer
 public/app.js          client application
 docs/                  the published project site (GitHub Pages)
