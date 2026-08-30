@@ -174,6 +174,49 @@ describe("planning beats going straight", () => {
   });
 });
 
+describe("comparison with the direct line", () => {
+  test("every planned route reports what going straight would have cost", () => {
+    const route = buildRoute(world, CITY.nyc, CITY.london);
+    expect(route.straight).toBeDefined();
+    expect(route.straight.totalSeconds).toBeGreaterThan(0);
+    expect(route.secondsSaved).toBeCloseTo(route.straight.totalSeconds - route.totalSeconds, 6);
+    expect(route.speedup).toBeCloseTo(route.straight.totalSeconds / route.totalSeconds, 9);
+  });
+
+  test("the straight-line figures match measuring it directly", () => {
+    const planned = buildRoute(world, CITY.madrid, CITY.casablanca);
+    const direct = buildRoute(straight, CITY.madrid, CITY.casablanca);
+    expect(planned.straight.totalSeconds).toBeCloseTo(direct.totalSeconds, 6);
+    expect(planned.straight.swimMetres).toBeCloseTo(direct.swimMetres, 6);
+  });
+
+  test("speeds are measured over the direct distance, so they are comparable", () => {
+    const route = buildRoute(world, CITY.nyc, CITY.london);
+    expect(route.effectiveSpeed).toBeCloseTo(route.directMetres / route.totalSeconds, 9);
+    expect(route.straightSpeed).toBeCloseTo(route.directMetres / route.straight.totalSeconds, 9);
+    // Speeding up by the time ratio and by the speed ratio must agree.
+    expect(route.effectiveSpeed / route.straightSpeed).toBeCloseTo(route.speedup, 9);
+  });
+
+  test("a saving is never negative — the fallback would be available anyway", () => {
+    for (const pair of [[CITY.nyc, CITY.la], [CITY.nyc, CITY.london], [CITY.delhi, CITY.beijing]]) {
+      const route = buildRoute(world, ...pair);
+      expect(route.secondsSaved).toBeGreaterThanOrEqual(-route.totalSeconds * 0.001);
+      expect(route.speedup).toBeGreaterThanOrEqual(0.999);
+    }
+  });
+
+  test("a route with nothing to go around reports no meaningful gain", () => {
+    const route = buildRoute(world, CITY.nyc, CITY.la);
+    expect(route.speedup).toBeLessThan(1.005);
+  });
+
+  test("crossing at Gibraltar is worth well over half again the speed", () => {
+    const route = buildRoute(world, CITY.madrid, CITY.casablanca);
+    expect(route.speedup).toBeGreaterThan(1.5);
+  });
+});
+
 describe("terrain reporting", () => {
   test("a land route reports climbing; an ocean leg reports none", () => {
     const route = buildRoute(world, CITY.delhi, CITY.beijing);

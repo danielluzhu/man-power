@@ -175,31 +175,18 @@ function referenceSeconds(world, a, b, sampleMetres = 5000) {
 }
 
 /**
- * Build the full itinerary between two coordinates.
+ * Measure and time a path that has already been chosen.
  *
- * `world` carries the fine land mask, the elevation grid and the two routing
- * grids. The courier's path is planned first, then measured: surfaces are
- * classified against the fine 0.1° mask along the planned line, consecutive
- * samples of the same surface become legs, and each leg is timed on its own
- * world record with terrain applied along it.
+ * Surfaces are classified against the fine 0.1° mask along the line,
+ * consecutive samples of the same surface become legs, and each leg is timed on
+ * its own world record with terrain applied along it.
+ *
+ * This is deliberately separate from choosing the path, because it gets run
+ * twice: once on the route the courier will take, and once on the straight line
+ * they could have taken instead, so the two can be compared on equal terms.
  */
-export function buildRoute(world, from, to) {
-  const { mask, elevation, grid, coarse } = world;
-
-  const direct = haversine(from.lat, from.lon, to.lat, to.lon);
-  if (direct < 1) {
-    return {
-      totalMetres: 0, totalSeconds: 0, runMetres: 0, swimMetres: 0,
-      ascent: 0, descent: 0, peak: 0, directMetres: 0, legs: [], path: [],
-    };
-  }
-
-  // Plan the route; fall back to the great circle if the search cannot find one.
-  const planned = grid && coarse
-    ? planPath(grid, coarse, from, to, (a, b) => referenceSeconds(world, a, b))
-    : null;
-  const path = planned ? planned.path : [{ ...from }, { ...to }];
-
+function measurePath(world, path, directMetres) {
+  const { mask, elevation } = world;
   const total = polylineLength(path);
   const samples = densify(path, stepFor(total));
 
@@ -252,7 +239,6 @@ export function buildRoute(world, from, to) {
 
   for (let i = 1; i < samples.length; i++) {
     if (samples[i].land === mode) { current.push(samples[i]); continue; }
-
     const boundary = refineBoundary(samples[i - 1], samples[i]);
     closeLeg(boundary);
     // The new leg starts at the same boundary point, so the legs stay
@@ -286,10 +272,58 @@ export function buildRoute(world, from, to) {
     ascent,
     descent,
     peak,
-    directMetres: direct,
-    detour: total / direct,
+    directMetres,
+    detour: total / directMetres,
     legs,
     path,
-    expanded: planned?.expanded ?? 0,
   };
+}
+
+const EMPTY_ROUTE = {
+  totalMetres: 0, totalSeconds: 0, runMetres: 0, swimMetres: 0,
+  ascent: 0, descent: 0, peak: 0, directMetres: 0, detour: 1, legs: [], path: [],
+};
+
+/**
+ * Build the full itinerary between two coordinates: plan the courier's path,
+ * measure it, and measure the straight line alongside it for comparison.
+ *
+ * Both routes are timed by the same pipeline over the same terrain, so the
+ * difference between them is attributable to the choice of path and nothing
+ * else. That comparison is what the UI reports — going further, and arriving
+ * sooner for it, is the whole claim the router is making.
+ */
+export function buildRoute(world, from, to) {
+  const { grid, coarse } = world;
+
+  const direct = haversine(from.lat, from.lon, to.lat, to.lon);
+  if (direct < 1) return { ...EMPTY_ROUTE };
+
+  const planned = grid && coarse
+    ? planPath(grid, coarse, from, to, (a, b) => referenceSeconds(world, a, b))
+    : null;
+
+  const path = planned ? planned.path : [{ ...from }, { ...to }];
+  const route = measurePath(world, path, direct);
+  route.expanded = planned?.expanded ?? 0;
+
+  if (planned) {
+    const straight = measurePath(world, [{ ...from }, { ...to }], direct);
+    route.straight = {
+      totalMetres: straight.totalMetres,
+      totalSeconds: straight.totalSeconds,
+      runMetres: straight.runMetres,
+      swimMetres: straight.swimMetres,
+      ascent: straight.ascent,
+      legs: straight.legs.length,
+    };
+    route.secondsSaved = straight.totalSeconds - route.totalSeconds;
+    // Both paths deliver between the same two points, so straight-line distance
+    // over elapsed time is the honest measure of how fast the message travelled.
+    route.speedup = straight.totalSeconds / route.totalSeconds;
+    route.effectiveSpeed = direct / route.totalSeconds;
+    route.straightSpeed = direct / straight.totalSeconds;
+  }
+
+  return route;
 }

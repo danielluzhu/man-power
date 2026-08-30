@@ -87,6 +87,8 @@ try {
   await wait(1500);
   const quote = await page.$eval("#quote", (el) => el.innerText);
   check("route is quoted before sending", /run/.test(quote) && /swim/.test(quote), quote.replace(/\n/g, " / "));
+  check("the quote compares against the direct line",
+        /faster than going straight/.test(quote) || /Straight there/.test(quote));
 
   await page.type("#body", "Carried, not transmitted.");
   await page.click("#send");
@@ -95,6 +97,9 @@ try {
   const hud = await page.$eval("#hud", (el) => el.innerText);
   check("HUD opens on the new message", /ARRIVES IN/.test(hud));
   check("leg breakdown is present", /Leg by leg \(\d+\)/.test(hud));
+  check("the route is compared against going straight",
+        /faster than going straight/.test(hud) || /Straight there/.test(hud),
+        hud.split("\n").find((l) => /faster than going straight|Straight there/.test(l)) || "");
 
   const t1 = await page.$eval("[data-hud-countdown]", (el) => el.textContent);
   await wait(2200);

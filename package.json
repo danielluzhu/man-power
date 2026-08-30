@@ -9,7 +9,8 @@
     "build:data": "bun run scripts/build-landmask.js && bun run scripts/build-cities.js && bun run scripts/build-elevation.js && bun run scripts/build-world.js && bun run scripts/build-site.js",
     "test": "bun test test/records.test.js test/geo.test.js test/terrain.test.js",
     "test:browser": "bun run test/browser.js",
-    "build:site": "bun run scripts/build-site.js"
+    "build:site": "bun run scripts/build-site.js",
+    "test:site": "bun run build:site && bun run test/site.js"
   },
   "private": true,
   "devDependencies": {

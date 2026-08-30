@@ -128,6 +128,18 @@ Three details make the search work:
 Together these earn the invariant the test suite enforces: **a planned route is
 never slower than the direct line.** Before these fixes it lost by up to 5%.
 
+Every route is measured against that alternative and reports the difference, so
+the claim is always visible rather than asserted:
+
+> **1.65× faster than going straight**
+> 45 days, 6 hours instead of 74 days, 14 hours — arrives 29 days, 8 hours sooner
+> 10.4 km/h vs 6.3 km/h as the crow flies
+> swims 4,040 km instead of 11,003 km
+
+Both routes are timed by the same pipeline over the same terrain, so the
+difference is attributable to the choice of path and nothing else. Where there
+is nothing worth going around, it says so instead of claiming a 1.00× gain.
+
 Endpoints are always treated as land — cities are on land, but a coastal one can
 fall in a water cell at this resolution.
 
@@ -225,7 +237,14 @@ sudo systemctl restart man-power   # after a code change
 ```bash
 bun test                   # pace model, terrain physics, routing invariants
 bun run test:browser       # drives the real app in headless Chromium
+bun run test:site          # rebuilds docs/ and drives the project site
 ```
+
+`test:site` exists for one specific failure: the site runs *copies* of the
+engine made by `build:site`, so editing the router and forgetting to rebuild
+leaves the published page quietly answering with the old engine while every
+other test passes. It rebuilds first, then checks the page reports what the
+current engine actually computes.
 
 The browser test exists because the worst bugs here were invisible to unit
 tests: a CSS rule that silently defeated the `[hidden]` attribute and rendered

@@ -98,6 +98,32 @@ function everests(metres) {
   return n >= 1.5 ? `${n.toFixed(1)}× Everest` : "";
 }
 
+/** Delivery speed as the crow flies, in km/h. */
+const kmh = (metresPerSecond) => `${(metresPerSecond * 3.6).toFixed(1)} km/h`;
+
+/**
+ * How the planned route compares with simply running the straight line.
+ *
+ * Both are timed by the same engine over the same terrain, so the difference is
+ * down to the choice of path alone. Where there is nothing worth going around
+ * the two are the same route, and saying so is more honest than reporting a
+ * 1.00x gain.
+ */
+function comparison(route) {
+  if (!route.straight || route.speedup < 1.005) {
+    return `<div class="versus versus--none">
+      Straight there — nothing worth going around.
+    </div>`;
+  }
+  return `<div class="versus">
+    <div class="versus__headline">${route.speedup.toFixed(2)}× faster than going straight</div>
+    <div class="versus__detail">
+      arrives ${duration(route.secondsSaved)} sooner ·
+      ${kmh(route.effectiveSpeed)} vs ${kmh(route.straightSpeed)} as the crow flies
+    </div>
+  </div>`;
+}
+
 function distance(metres) {
   if (metres < 1000) return `${Math.round(metres)} m`;
   const km = metres / 1000;
@@ -293,7 +319,8 @@ function renderQuote() {
       <span><b class="is-run">run</b> ${distance(r.runMetres)}</span>
       <span><b class="is-swim">swim</b> ${distance(r.swimMetres)}</span>
       <span><b class="is-climb">climb</b> ${climb(r.ascent)}${everests(r.ascent) ? ` · ${everests(r.ascent)}` : ""}</span>
-    </div>`;
+    </div>
+    ${comparison(r)}`;
 }
 
 function messageCard(msg) {
@@ -364,6 +391,8 @@ function renderHud() {
   $("[data-hud-climb]").innerHTML =
     `${climb(msg.ascent)}${everests(msg.ascent) ? `<span class="stat__note">${everests(msg.ascent)}</span>` : ""}`;
   $("[data-hud-peak]").textContent = msg.peak ? `${msg.peak.toLocaleString()} m` : "sea level";
+
+  $("[data-hud-versus]").innerHTML = comparison(msg);
 
   const body = $("[data-hud-body]");
   if (msg.body) {

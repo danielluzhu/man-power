@@ -125,6 +125,11 @@ function serializeMessage(row, viewerId, { includeRoute = false } = {}) {
     peak: route.peak,
     directMetres: route.directMetres,
     detour: route.detour,
+    straight: route.straight,
+    secondsSaved: route.secondsSaved,
+    speedup: route.speedup,
+    effectiveSpeed: route.effectiveSpeed,
+    straightSpeed: route.straightSpeed,
     body: arrived || isSender ? row.body : null,
     charCount: row.body.length,
   };

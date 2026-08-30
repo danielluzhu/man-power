@@ -41,6 +41,31 @@ function duration(seconds) {
   return parts.join(", ") || "moments";
 }
 
+/** Delivery speed as the crow flies, in km/h. */
+const kmh = (metresPerSecond) => `${(metresPerSecond * 3.6).toFixed(1)} km/h`;
+
+/**
+ * How the planned route compares with simply running the straight line. Both
+ * are timed by the same engine over the same terrain, so the difference is down
+ * to the choice of path alone.
+ */
+function comparison(route) {
+  if (!route.straight || route.speedup < 1.005) {
+    return `<div class="versus versus--none">
+      Straight there — nothing on this route worth going around.
+    </div>`;
+  }
+  return `<div class="versus">
+    <div class="versus__headline">${route.speedup.toFixed(2)}× faster than going straight</div>
+    <div class="versus__detail">
+      ${duration(route.totalSeconds)} instead of ${duration(route.straight.totalSeconds)} —
+      arrives ${duration(route.secondsSaved)} sooner<br>
+      ${kmh(route.effectiveSpeed)} vs ${kmh(route.straightSpeed)} as the crow flies<br>
+      swims ${distance(route.swimMetres)} instead of ${distance(route.straight.swimMetres)}
+    </div>
+  </div>`;
+}
+
 function distance(metres) {
   if (metres < 1000) return `${Math.round(metres)} m`;
   const km = metres / 1000;
@@ -196,8 +221,8 @@ function recompute() {
   const runPct = (route.runMetres / route.totalMetres) * 100;
   const swimPct = 100 - runPct;
   const detour = route.detour > 1.02
-    ? `${((route.detour - 1) * 100).toFixed(0)}% further than the direct line, and faster for it`
-    : `essentially the direct line — nothing worth going around`;
+    ? `${((route.detour - 1) * 100).toFixed(0)}% further than the direct line`
+    : `essentially the direct line`;
 
   box.innerHTML = `
     <div class="result__route">${escapeHtml(from.name.toUpperCase())} → ${escapeHtml(to.name.toUpperCase())}</div>
@@ -214,6 +239,8 @@ function recompute() {
       <span><b class="is-swim">swim</b> ${distance(route.swimMetres)}</span>
       <span><b class="is-climb">climb</b> ${climb(route.ascent)}${everests(route.ascent) ? ` · ${everests(route.ascent)}` : ""}</span>
     </div>
+
+    ${comparison(route)}
 
     <details class="legs">
       <summary>Leg by leg (${route.legs.length})</summary>
