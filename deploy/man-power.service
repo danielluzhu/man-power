@@ -16,6 +16,13 @@ Group=ubuntu
 WorkingDirectory=/workspace
 Environment=PORT=4321
 Environment=HOME=/home/ubuntu
+
+# Secrets live outside the repository. Create /etc/man-power/sms.env with mode
+# 0600 holding the provider credentials (TWILIO_* or VONAGE_*); the leading dash
+# means the service still starts when the file is absent, writing codes to the
+# journal instead. PUBLIC_ORIGIN belongs here too — WebOTP only autofills when
+# the message names the origin the app actually answers from.
+EnvironmentFile=-/etc/man-power/sms.env
 ExecStart=/home/ubuntu/.bun/bin/bun run server.js
 
 # Bun needs a moment to load the land mask and gazetteer before it listens.

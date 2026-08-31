@@ -19,6 +19,31 @@ fi
 # ── the app ──────────────────────────────────────────────────────────────────
 install -m 0644 "$HERE/man-power.service" /etc/systemd/system/man-power.service
 
+# Somewhere for credentials to live, outside the repository. Created empty so
+# the path exists and the permissions are right before anything is put in it.
+# Group-readable by the service account, so it can be inspected without sudo.
+install -d -o root -g ubuntu -m 0750 /etc/man-power
+[[ -f /etc/man-power/sms.env ]] || {
+  install -o root -g ubuntu -m 0640 /dev/null /etc/man-power/sms.env
+  cat > /etc/man-power/sms.env <<'ENVEOF'
+# SMS provider credentials. Uncomment one set and restart:
+#   sudo systemctl restart man-power
+#
+# TWILIO_ACCOUNT_SID=
+# TWILIO_AUTH_TOKEN=
+# TWILIO_FROM=
+#
+# VONAGE_API_KEY=
+# VONAGE_API_SECRET=
+# VONAGE_FROM=
+#
+# Where the app answers from, so WebOTP can autofill the code:
+# PUBLIC_ORIGIN=https://man-4321.another.ac
+ENVEOF
+  chmod 0640 /etc/man-power/sms.env
+  chown root:ubuntu /etc/man-power/sms.env
+}
+
 # ── continuous backup ────────────────────────────────────────────────────────
 if command -v litestream >/dev/null 2>&1; then
   install -d -o ubuntu -g ubuntu -m 0750 "$BACKUP_DIR" "$BACKUP_DIR/local"
@@ -45,6 +70,13 @@ for _ in $(seq 30); do
     curl -fsS "http://localhost:$PORT/api/health" 2>/dev/null \
       | grep -oP '"driftSeconds":\s*\K[-0-9.]+' \
       | xargs -r -I{} echo "Clock drift: {}s"
+
+    # Say plainly whether codes are being sent or merely logged.
+    curl -fsS "http://localhost:$PORT/api/health" 2>/dev/null \
+      | grep -q '"live":true' \
+      && echo "SMS: sending for real" \
+      || echo "SMS: NO PROVIDER — codes go to the journal, not to phones." \
+              "Put credentials in /etc/man-power/sms.env (see deploy/install.sh)."
 
     if [[ $BACKUP == yes ]]; then
       echo "Backups replicating to $BACKUP_DIR/local"
