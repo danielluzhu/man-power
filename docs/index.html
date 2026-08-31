@@ -14,10 +14,23 @@
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏃</text></svg>">
 <link rel="stylesheet" href="./style.css">
 </head>
-<body>
+<!-- Where the running app lives. Every sign-in link on this page is wired
+     from here, so moving the app is a one-line change. -->
+<body data-app="https://man-4321.another.ac/">
+
+<header class="topbar" id="topbar">
+  <a class="topbar__brand" href="#top">MAN POWER</a>
+  <nav class="topbar__nav">
+    <a href="#calculator">Calculator</a>
+    <a href="#send">How it works</a>
+    <a href="https://github.com/danielluzhu/man-power">Source</a>
+  </nav>
+  <a class="btn btn--primary btn--sm" data-app-link>Sign in</a>
+</header>
+
 
 <!-- ─────────────────────────────── hero ─────────────────────────────── -->
-<header class="hero">
+<header class="hero" id="top">
   <div class="hero__inner">
     <h1 class="wordmark">MAN<span>POWER</span></h1>
     <p class="lede">
@@ -29,9 +42,12 @@
       arrives when a human could have arrived, and not one second sooner.
     </p>
     <div class="hero__actions">
-      <a class="btn btn--primary" href="#calculator">Time a journey</a>
-      <a class="btn" href="https://github.com/danielluzhu/man-power">Source on GitHub</a>
+      <a class="btn btn--primary" data-app-link>Sign in and send one</a>
+      <a class="btn" href="#calculator">Time a journey first</a>
     </div>
+    <p class="hero__note">
+      A phone number and a six-digit code. No password to invent or forget.
+    </p>
   </div>
   <div class="hero__fade"></div>
 </header>
@@ -169,6 +185,31 @@
   </aside>
 </section>
 
+<!-- ──────────────────────────── send one ────────────────────────────── -->
+<section class="send" id="send">
+  <div class="send__inner">
+    <h2>Send one yourself</h2>
+    <p class="send__lede">
+      The calculator above only times a journey. The app actually dispatches one:
+      you write a message, a courier leaves on foot, and it stays sealed — from
+      the recipient and from the server's own responses — until they could
+      genuinely have arrived.
+    </p>
+
+    <ol class="send__steps">
+      <li><b>Enter your number.</b> A six-digit code arrives by text. There is no password.</li>
+      <li><b>Pick where you stand.</b> Every journey is measured from there, so it matters.</li>
+      <li><b>Write to another courier.</b> Then wait, which is the whole point.</li>
+    </ol>
+
+    <a class="btn btn--primary btn--lg" data-app-link>Sign in</a>
+    <p class="send__note">
+      Your number signs you in and is never shown to anyone else. You will want
+      to turn on arrival alerts — a journey outlasts any browser tab.
+    </p>
+  </div>
+</section>
+
 <!-- ────────────────────────────── run it ────────────────────────────── -->
 <section class="run">
   <h2>Run the whole thing</h2>
@@ -213,7 +254,10 @@ sudo deploy/install.sh       <span class="c"># restarts on failure, starts on bo
     wait for weather, and ocean currents do not exist. And they hold marathon
     world-record pace for six thousand kilometres, which is the whole joke.
   </p>
-  <p><a href="https://github.com/danielluzhu/man-power">danielluzhu/man-power</a></p>
+  <p>
+    <a data-app-link>Sign in</a> ·
+    <a href="https://github.com/danielluzhu/man-power">danielluzhu/man-power</a>
+  </p>
 </footer>
 
 <script type="module" src="./demo.js"></script>

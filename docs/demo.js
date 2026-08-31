@@ -351,7 +351,28 @@ const progress = (message) => {
   if (box) box.innerHTML = `<p class="result__loading">${escapeHtml(message)}</p>`;
 };
 
+/**
+ * Point every sign-in link at the running app, and let the sticky bar know when
+ * it has left the hero. Done before the heavy loading below, so the way in
+ * works while the terrain is still downloading.
+ */
+function wireChrome() {
+  const app = document.body.dataset.app;
+  for (const link of document.querySelectorAll("[data-app-link]")) link.href = app;
+
+  const bar = $("#topbar");
+  const hero = $(".hero");
+  if (!bar || !hero) return;
+
+  const watcher = new IntersectionObserver(
+    ([entry]) => bar.classList.toggle("is-lifted", !entry.isIntersecting),
+    { rootMargin: "-60px 0px 0px 0px" }
+  );
+  watcher.observe(hero);
+}
+
 async function boot() {
+  wireChrome();
   progress("Loading coastlines and terrain…");
 
   const [maskBuffer, elevationGz, outline, gazetteer] = await Promise.all([

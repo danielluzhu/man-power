@@ -110,6 +110,27 @@ try {
   check("dragging turns the globe", Math.abs(turned.lon - camera.lon) > 1,
         `${camera.lon}° → ${turned.lon}°`);
 
+  // The way in has to be findable: the page is long, and the hero's buttons
+  // scroll out of sight almost immediately.
+  const signIn = await page.$$eval("[data-app-link]", (nodes) =>
+    nodes.map((n) => ({ text: n.textContent.trim(), href: n.getAttribute("href") }))
+  );
+  check("the landing page offers a way to sign in", signIn.length >= 3, `${signIn.length} links`);
+  check("every sign-in link points at the app",
+        signIn.length > 0 && signIn.every((l) => /^https?:\/\/.+/.test(l.href)),
+        signIn[0]?.href);
+  check("one of them is in the sticky bar",
+        await page.$eval("#topbar", (el) => !!el.querySelector("[data-app-link]")));
+
+  const atTop = await page.$eval("#topbar", (el) => el.classList.contains("is-lifted"));
+  await page.evaluate(() => window.scrollTo(0, 1600));
+  await wait(700);
+  const scrolled = await page.$eval("#topbar", (el) => el.classList.contains("is-lifted"));
+  check("the bar stays out of the way over the hero, then lifts",
+        atTop === false && scrolled === true);
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await wait(400);
+
   const records = await page.$eval("#records", (el) => el.innerText);
   check("the pace book renders", /Josh Kerr/.test(records) && /Sun Yang/.test(records));
 

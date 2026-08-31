@@ -153,6 +153,14 @@ textarea { resize: vertical; min-height: 6rem; line-height: 1.6; }
   color: var(--ink);
 }
 .brand__tag { color: var(--ink-dim); margin: .75rem 0 0; font-size: 13px; }
+/* Back out to the landing page, for anyone who arrived here without context. */
+.brand__more {
+  color: var(--ink-faint);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  white-space: nowrap;
+}
+.brand__more:hover { color: var(--run); }
 
 /* ── signing in ─────────────────────────────────────────────────────────── */
 

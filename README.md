@@ -223,8 +223,17 @@ only while moving or when something asks it to.
 
 <https://danielluzhu.github.io/man-power/>
 
-Published from `docs/` on `main`. It is not a brochure: it runs the *actual*
-routing engine client-side — the same ladder, the same coastline bitmap, the
+Published from `docs/` on `main`. It carries the sign-in links into the running
+app — a sticky bar, the hero, a *Send one yourself* section and the footer — all
+wired from a single `data-app` attribute on `<body>`, so moving the app is a
+one-line change.
+
+**One caveat.** That URL currently sits behind the host's proxy authentication,
+so anyone who is not you gets an access wall before they ever reach the sign-on.
+Making it genuinely public means a domain pointed at this machine (see *Still
+needed before launch*).
+
+It is not a brochure: it runs the *actual* routing engine client-side — the same ladder, the same coastline bitmap, the
 same leg splitting — so you can time any pair of cities without installing
 anything. The land mask is 47 KB gzipped, which makes that practical.
 
@@ -425,7 +434,8 @@ Three things are blocked on decisions or credentials rather than code.
   the journal, which is fine for development and unusable in public — anyone who
   can read the log can sign in as anyone. Three environment variables away.
 - **A domain and TLS.** A messaging service needs an address people can return
-  to weeks later.
+  to weeks later — and until there is one, the landing page's *Sign in* buttons
+  lead to the host's proxy login rather than to the app.
 - **A moderation stance.** The product's rule is that nobody reads a message
   before it arrives, which is also what makes abuse hard: a recipient cannot
   report for three weeks, and a sealed message cannot be scanned. The server
