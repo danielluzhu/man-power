@@ -8,6 +8,7 @@
  */
 
 import { LandMask, buildRoute } from "./lib/geo.js";
+import { haversine, interpolate } from "./lib/sphere.js";
 import { RUN_LADDER, SWIM_LADDER } from "./lib/records.js";
 import { Elevation } from "./lib/terrain.js";
 import { buildTerrainTexture } from "./lib/terrain-texture.js";
@@ -356,6 +357,216 @@ const progress = (message) => {
  * it has left the hero. Done before the heavy loading below, so the way in
  * works while the terrain is still downloading.
  */
+/* ─────────────────────────────── the hero ─────────────────────────────── */
+
+/**
+ * The opening: a courier crossing the North Atlantic, on a loop.
+ *
+ * The route is real — planned by this same engine at build time and shipped as
+ * a small file, because the grids take a couple of seconds to build and nothing
+ * above the fold can wait for that. The coastline outline is enough to start
+ * drawing; the terrain arrives when it arrives.
+ *
+ * Twenty-three days compressed into half a minute. The path traces out behind
+ * the runner rather than being drawn all at once, so what you see is a journey
+ * being made rather than a line on a map.
+ */
+const LOOP_SECONDS = 34;
+const ARRIVAL_PAUSE = 3;
+
+/** The part of a polyline covered so far, cut cleanly at the fraction. */
+function truncate(points, f) {
+  if (f <= 0) return [];
+  if (f >= 1) return points;
+
+  const spans = [];
+  let total = 0;
+  for (let i = 1; i < points.length; i++) {
+    const d = haversine(points[i - 1].lat, points[i - 1].lon, points[i].lat, points[i].lon);
+    spans.push(d);
+    total += d;
+  }
+  if (total === 0) return [points[0]];
+
+  let target = total * f;
+  const out = [points[0]];
+  for (let i = 0; i < spans.length; i++) {
+    if (spans[i] >= target) {
+      const within = spans[i] > 0 ? target / spans[i] : 0;
+      out.push(interpolate(points[i].lat, points[i].lon, points[i + 1].lat, points[i + 1].lon, within));
+      return out;
+    }
+    target -= spans[i];
+    out.push(points[i + 1]);
+  }
+  return out;
+}
+
+/** The journey so far, as a route the globe can draw. */
+function trailAt(showcase, elapsed) {
+  const legs = [];
+  let covered = 0;
+
+  for (const leg of showcase.legs) {
+    if (elapsed >= leg.endSeconds) {
+      legs.push({ mode: leg.mode, points: leg.points });
+      covered = leg.endF;
+      continue;
+    }
+    if (elapsed > leg.startSeconds) {
+      const within = (elapsed - leg.startSeconds) / (leg.endSeconds - leg.startSeconds);
+      legs.push({ mode: leg.mode, points: truncate(leg.points, within) });
+      covered = leg.startF + within * (leg.endF - leg.startF);
+      return { legs, covered, mode: leg.mode, here: legs.at(-1).points.at(-1) };
+    }
+    break;
+  }
+  return { legs, covered, mode: legs.at(-1)?.mode ?? "run", here: legs.at(-1)?.points.at(-1) };
+}
+
+function startHero(showcase, outline) {
+  const canvas = $("#hero-globe");
+  if (!canvas) return;
+
+  const globe = new Globe(canvas, outline);
+  // A wide, slow backdrop behind text — coarse pixels are plenty, and it never
+  // stops moving so it never gets to use the cached full-resolution raster.
+  globe.motionQuality = 2;
+  globe.maxDpr = 1.5;
+
+  const points = showcase.legs.flatMap((leg) => leg.points.map(([lat, lon]) => ({ lat, lon })));
+  const full = showcase.legs.map((leg) => ({
+    mode: leg.mode,
+    points: leg.points.map(([lat, lon]) => ({ lat, lon })),
+  }));
+  const legsForTrail = showcase.legs.map((leg, i) => ({
+    ...leg,
+    points: full[i].points,
+  }));
+
+  const from = { lat: showcase.from.lat, lon: showcase.from.lon };
+  const to = { lat: showcase.to.lat, lon: showcase.to.lon };
+
+  const resize = () => {
+    globe.resize();
+    const shot = globe.frameRoute({ legs: full }, from, to);
+    // A touch wider than the route needs, so it sits in the frame rather than
+    // filling it edge to edge.
+    if (shot) globe.jumpTo(shot.lat, shot.lon, shot.zoom * 0.86);
+  };
+  window.addEventListener("resize", resize);
+  resize();
+
+  $("[data-hero-route]").textContent = `${showcase.from.name} → ${showcase.to.name}`;
+
+  const started = performance.now();
+  const totalDays = Math.ceil(showcase.totalSeconds / 86400);
+
+  /**
+   * A hero that loops forever is precisely what a reduced-motion preference is
+   * asking about. Honour it by drawing the finished journey once and stopping —
+   * the whole route is there, it simply is not re-run.
+   */
+  const stillness = window.matchMedia("(prefers-reduced-motion: reduce)");
+  const drawArrived = () => {
+    globe.render({
+      route: { legs: full },
+      from,
+      to,
+      scale: 1.6,
+    });
+    $("[data-hero-day]").textContent = `Arrived in ${totalDays} days`;
+    $("[data-hero-covered]").textContent = distance(showcase.totalMetres);
+    $("[data-hero-mode]").textContent = "delivered by hand";
+    $("[data-hero-progress]").style.width = "100%";
+  };
+
+  const frame = () => {
+    if (stillness.matches) return drawArrived();
+
+    const cycle = ((performance.now() - started) / 1000) % (LOOP_SECONDS + ARRIVAL_PAUSE);
+    const arrived = cycle > LOOP_SECONDS;
+    const elapsed = arrived
+      ? showcase.totalSeconds
+      : (cycle / LOOP_SECONDS) * showcase.totalSeconds;
+
+    const trail = trailAt({ ...showcase, legs: legsForTrail }, elapsed);
+
+    globe.render({
+      ghost: { legs: full },
+      route: { legs: trail.legs },
+      from,
+      to: arrived ? to : null,
+      courier: arrived ? null : trail.here && { ...trail.here, mode: trail.mode },
+      // Drawn heavier than in the app: this is seen at a glance, from across a
+      // room, behind text.
+      scale: 1.6,
+    });
+
+    const day = Math.min(totalDays, Math.floor(elapsed / 86400) + 1);
+    $("[data-hero-day]").textContent = arrived ? "Arrived" : `Day ${day} of ${totalDays}`;
+    $("[data-hero-covered]").textContent = distance(showcase.totalMetres * trail.covered);
+    $("[data-hero-mode]").textContent = arrived
+      ? "delivered by hand"
+      : trail.mode === "swim" ? "swimming" : "running";
+    $("[data-hero-progress]").style.width = `${(trail.covered * 100).toFixed(2)}%`;
+
+    requestAnimationFrame(frame);
+  };
+
+  // Redraw once if the preference changes while the page is open.
+  stillness.addEventListener?.("change", () => frame());
+  frame();
+
+  return globe;
+}
+
+/* ────────────────────────────── the journal ───────────────────────────── */
+
+/**
+ * The same crossing, written out. Every line is real: the legs the router
+ * chose, timed against the records that govern them.
+ */
+function renderJournal(showcase) {
+  const list = $("#journal-legs");
+  if (!list) return;
+
+  const dayOf = (seconds) => Math.floor(seconds / 86400) + 1;
+
+  list.innerHTML = showcase.legs
+    .map((leg) => {
+      const from = dayOf(leg.startSeconds);
+      const to = dayOf(leg.endSeconds);
+      const days = from === to ? `Day ${from}` : `Days ${from}–${to}`;
+      const climb = leg.ascent > 500
+        ? `<span class="journal__climb">climbing ${leg.ascent.toLocaleString()} m</span>`
+        : "";
+
+      return `
+        <li class="journal__leg is-${leg.mode}">
+          <span class="journal__day">${days}</span>
+          <span class="journal__mark" aria-hidden="true"></span>
+          <div class="journal__body">
+            <p class="journal__what">
+              <b>${leg.mode === "swim" ? "Swims" : "Runs"} ${distance(leg.metres)}</b>
+              <span class="journal__how-long">${duration(leg.seconds)}</span>
+            </p>
+            <p class="journal__pace">
+              at ${escapeHtml(leg.record.label)} pace — ${escapeHtml(leg.record.athlete)}
+              ${climb}
+            </p>
+          </div>
+        </li>`;
+    })
+    .join("");
+
+  const saved = showcase.straightSeconds - showcase.totalSeconds;
+  $("#journal-close").innerHTML = `
+    ${distance(showcase.totalMetres)} on foot, ${climb(showcase.ascent)} of climbing, and
+    ${distance(showcase.swimMetres)} in open water — arriving
+    <b>${duration(saved)} sooner</b> than swimming straight across would have.`;
+}
+
 function wireChrome() {
   const app = document.body.dataset.app;
   for (const link of document.querySelectorAll("[data-app-link]")) link.href = app;
@@ -375,10 +586,19 @@ async function boot() {
   wireChrome();
   progress("Loading coastlines and terrain…");
 
-  const [maskBuffer, elevationGz, outline, gazetteer] = await Promise.all([
+  // The outline and the showcase journey are small and come first, so the hero
+  // is moving long before the routing data has finished arriving.
+  const [outline, showcase] = await Promise.all([
+    fetch("./data/world.json").then((r) => r.json()),
+    fetch("./data/showcase.json").then((r) => r.json()),
+  ]);
+
+  const heroGlobe = startHero(showcase, outline);
+  renderJournal(showcase);
+
+  const [maskBuffer, elevationGz, gazetteer] = await Promise.all([
     fetch("./data/landmask.bin").then((r) => r.arrayBuffer()),
     fetch("./data/elevation.bin.gz").then((r) => r.arrayBuffer()),
-    fetch("./data/world.json").then((r) => r.json()),
     fetch("./data/cities.json").then((r) => r.json()),
   ]);
 
@@ -399,7 +619,9 @@ async function boot() {
   await yieldToPaint();
   // The app downloads a baked PNG of this; here the elevation grid is already
   // in memory for routing, so the texture is built rather than fetched.
-  globe.setTexture(buildTerrainTexture(mask, elevation));
+  const texture = buildTerrainTexture(mask, elevation);
+  globe.setTexture(texture);
+  heroGlobe?.setTexture(texture);
   invalidate();
 
   progress("Building the routing grid…");

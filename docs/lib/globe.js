@@ -598,8 +598,14 @@ export class Globe {
     }
   }
 
-  /** Full repaint. `route` and `courier` are optional. */
-  render({ route, from, to, courier, colors } = {}) {
+  /**
+   * Full repaint. Everything but the sphere is optional.
+   *
+   * `ghost` is a route drawn faintly underneath `route` — the whole journey
+   * behind the part of it already travelled, so a courier in motion is going
+   * somewhere visible rather than wandering.
+   */
+  render({ route, ghost, from, to, courier, colors, scale = 1 } = {}) {
     const { ctx, canvas } = this;
     const b = this.basis();
     const m = this.metrics();
@@ -621,23 +627,29 @@ export class Globe {
     ctx.lineWidth = 1;
     ctx.stroke();
 
+    if (ghost?.legs?.length) {
+      for (const leg of ghost.legs) {
+        this.drawLeg(leg.points, "rgba(226,240,250,0.2)", 1.2 * scale, b, m, leg.mode === "swim");
+      }
+    }
+
     if (route?.legs?.length) {
       const run = colors?.run || "#f0b429";
       const swim = colors?.swim || "#38bdf8";
       // Dark casing first so the route reads over land and ocean alike.
-      for (const leg of route.legs) this.drawLeg(leg.points, "rgba(2,8,15,0.65)", 5, b, m);
+      for (const leg of route.legs) this.drawLeg(leg.points, "rgba(2,8,15,0.65)", 5 * scale, b, m);
       for (const leg of route.legs) {
-        this.drawLeg(leg.points, leg.mode === "swim" ? swim : run, 2.4, b, m, leg.mode === "swim");
+        this.drawLeg(leg.points, leg.mode === "swim" ? swim : run, 2.4 * scale, b, m, leg.mode === "swim");
       }
     }
 
-    if (from) this.drawMarker(from.lat, from.lon, { fill: "#94a3b8", radius: 3.5 }, b, m);
-    if (to) this.drawMarker(to.lat, to.lon, { fill: "#e2e8f0", ring: "rgba(226,232,240,0.4)", radius: 4 }, b, m);
+    if (from) this.drawMarker(from.lat, from.lon, { fill: "#94a3b8", radius: 3.5 * scale }, b, m);
+    if (to) this.drawMarker(to.lat, to.lon, { fill: "#e2e8f0", ring: "rgba(226,232,240,0.4)", radius: 4 * scale }, b, m);
     if (courier) {
       this.drawMarker(courier.lat, courier.lon, {
         fill: courier.mode === "swim" ? "#38bdf8" : "#f0b429",
         ring: courier.mode === "swim" ? "rgba(56,189,248,0.5)" : "rgba(240,180,41,0.5)",
-        radius: 5,
+        radius: 5 * scale,
       }, b, m);
     }
   }

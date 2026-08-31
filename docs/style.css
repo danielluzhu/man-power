@@ -20,6 +20,9 @@
   --radius: 10px;
   --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
   --sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  /* The narrative voice. Mono is for data, sans for interface, serif for the
+     things this page is actually saying. */
+  --serif: "Fraunces", "Iowan Old Style", Palatino, "Palatino Linotype", Georgia, serif;
 
   --measure: 62ch;
   --page: 1180px;
@@ -40,8 +43,14 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-h1, h2, h3 { line-height: 1.2; letter-spacing: -0.01em; }
-h2 { font-size: clamp(22px, 3vw, 30px); margin: 0 0 .6rem; }
+h1, h2, h3 { line-height: 1.15; letter-spacing: -0.015em; }
+h2 {
+  font-family: var(--serif);
+  font-optical-sizing: auto;
+  font-weight: 500;
+  font-size: clamp(26px, 4vw, 40px);
+  margin: 0 0 .8rem;
+}
 h3 { font-size: 16px; margin: 0 0 .35rem; }
 p { margin: 0 0 1rem; }
 em { color: var(--run); font-style: normal; }
@@ -115,38 +124,104 @@ section > h2, section > p, .records__note { max-width: var(--measure); margin-in
 
 .hero {
   position: relative;
-  /* Pulled up under the sticky bar, which is transparent here. */
   margin-top: -3.2rem;
-  padding: clamp(6rem, 13vw, 9rem) 1.25rem clamp(3rem, 6vw, 5rem);
+  min-height: min(100dvh, 860px);
+  display: grid;
+  align-content: center;
+  padding: clamp(6rem, 12vw, 8.5rem) 1.25rem clamp(7rem, 11vw, 9rem);
   text-align: center;
   overflow: hidden;
-  background:
-    radial-gradient(ellipse 80% 60% at 50% -10%, rgba(240,180,41,.09), transparent 70%),
-    radial-gradient(ellipse 60% 50% at 80% 30%, rgba(56,189,248,.07), transparent 70%);
   border-bottom: 1px solid var(--line);
 }
+
+/* The journey itself, running behind everything. */
+.hero__globe {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  /* Pushed right and up so the courier crosses beside the text rather than
+     underneath it, and dimmed so the words stay first. */
+  transform: translate(16%, -4%) scale(1.12);
+  opacity: .95;
+}
+@media (max-width: 900px) {
+  .hero__globe { transform: translate(0, -14%) scale(1.3); opacity: .5; }
+}
+
+/* Darkens towards the middle, so the copy sits on quiet ground wherever the
+   courier happens to be. */
+/* Darkens under the words and lets the courier show everywhere else. Tuned by
+   eye: heavy enough that the copy never fights the terrain, light enough that
+   the journey is plainly the subject. */
+.hero__veil {
+  position: absolute; inset: 0;
+  background:
+    radial-gradient(ellipse 46% 46% at 32% 46%, rgba(7,13,21,.94), rgba(7,13,21,.6) 55%, transparent 78%),
+    linear-gradient(to bottom, rgba(7,13,21,.7), transparent 18%, transparent 74%, var(--bg));
+}
+
 .hero__inner { position: relative; max-width: 44rem; margin: 0 auto; }
 
 .wordmark {
-  font: 800 clamp(38px, 9vw, 74px)/0.95 var(--sans);
+  font: 800 clamp(38px, 9vw, 76px)/0.95 var(--sans);
   letter-spacing: .12em;
-  margin: 0 0 1.4rem;
+  margin: 0 0 1.5rem;
   text-indent: .12em;
 }
 .wordmark span { display: block; color: var(--run); }
 
-.lede { font-size: clamp(16px, 2.2vw, 20px); color: var(--ink); margin-bottom: .9rem; }
-.sub { color: var(--ink-dim); max-width: 38rem; margin-inline: auto; }
-
-.hero__actions { display: flex; gap: .6rem; justify-content: center; flex-wrap: wrap; margin-top: 1.8rem; }
-.hero__note {
-  margin: 1rem 0 0;
-  font: 12px var(--mono);
-  color: var(--ink-faint);
+.lede {
+  font-family: var(--serif);
+  font-optical-sizing: auto;
+  font-weight: 400;
+  font-size: clamp(19px, 2.6vw, 27px);
+  line-height: 1.35;
+  letter-spacing: -.01em;
+  color: var(--ink);
+  margin-bottom: 1.1rem;
 }
+.sub { color: var(--ink-dim); max-width: 36rem; margin-inline: auto; }
+
+.hero__actions { display: flex; gap: .6rem; justify-content: center; flex-wrap: wrap; margin-top: 2rem; }
+.hero__note { margin: 1rem 0 0; font: 12px var(--mono); color: var(--ink-faint); }
 
 .btn--sm { padding: .45rem .9rem; font-size: 13px; }
 .btn--lg { padding: .85rem 2rem; font-size: 16px; }
+
+/* Reads out the looping journey, so it is legible as a journey. */
+.telemetry {
+  position: absolute;
+  left: 50%; bottom: clamp(1.5rem, 4vw, 3rem);
+  transform: translateX(-50%);
+  width: min(30rem, calc(100% - 2.5rem));
+  margin: 0;
+  text-align: center;
+}
+.telemetry__route {
+  font: 10.5px var(--mono);
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+.telemetry__row {
+  display: flex; justify-content: center; gap: .5rem;
+  margin-top: .45rem;
+  font: 12.5px var(--mono);
+  color: var(--ink-dim);
+  font-variant-numeric: tabular-nums;
+}
+.telemetry__day { color: var(--run); }
+.telemetry__sep { color: var(--line-bright); }
+.telemetry__track {
+  height: 2px;
+  margin-top: .7rem;
+  background: var(--line);
+  border-radius: 99px;
+  overflow: hidden;
+}
+.telemetry__bar {
+  height: 100%; width: 0;
+  background: linear-gradient(90deg, var(--swim), var(--run));
+}
 
 /* ───────────────────────────── calculator ─────────────────────────── */
 
@@ -388,6 +463,91 @@ input:focus { border-color: #3d5f8c; box-shadow: 0 0 0 3px rgba(56,132,248,.12);
 .aside h3 { color: var(--ink); }
 .aside p { color: var(--ink-dim); margin: 0; font-size: 14px; }
 
+/* ───────────────────────────── the journal ────────────────────────── */
+
+.journal { background: var(--bg-raised); border-block: 1px solid var(--line); }
+.journal__intro { max-width: var(--measure); margin: 0 auto 3rem; text-align: center; }
+.journal__intro p { color: var(--ink-dim); margin: 0; }
+
+.journal__legs {
+  position: relative;
+  list-style: none;
+  max-width: 40rem;
+  margin: 0 auto;
+  padding: 0;
+}
+/* The road itself, running down the page. */
+.journal__legs::before {
+  content: "";
+  position: absolute;
+  left: 6.2rem; top: .6rem; bottom: .6rem;
+  width: 1px;
+  background: linear-gradient(to bottom, transparent, var(--line-bright) 8%, var(--line-bright) 92%, transparent);
+}
+
+.journal__leg {
+  position: relative;
+  display: grid;
+  grid-template-columns: 5.6rem 1.2rem 1fr;
+  align-items: start;
+  gap: 0 .6rem;
+  padding: .55rem 0;
+}
+.journal__day {
+  font: 10.5px var(--mono);
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  text-align: right;
+  padding-top: .25rem;
+  white-space: nowrap;
+}
+.journal__mark {
+  justify-self: center;
+  width: 7px; height: 7px;
+  margin-top: .45rem;
+  border-radius: 50%;
+  background: var(--bg-raised);
+  border: 1px solid currentColor;
+}
+.journal__leg.is-run  .journal__mark { color: var(--run); }
+.journal__leg.is-swim .journal__mark { color: var(--swim); background: var(--swim); }
+
+.journal__what {
+  margin: 0;
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: .6rem;
+  font-size: 14.5px;
+}
+.journal__what b { color: var(--ink); font-weight: 600; }
+.journal__leg.is-swim .journal__what b { color: var(--swim); }
+.journal__leg.is-run  .journal__what b { color: var(--run); }
+.journal__how-long { font: 12px var(--mono); color: var(--ink-dim); }
+
+.journal__pace {
+  margin: .15rem 0 0;
+  font-size: 12.5px;
+  color: var(--ink-faint);
+}
+.journal__climb { color: var(--climb); margin-left: .5rem; }
+
+.journal__close {
+  max-width: var(--measure);
+  margin: 3rem auto 0;
+  text-align: center;
+  font-family: var(--serif);
+  font-optical-sizing: auto;
+  font-size: clamp(16px, 2vw, 20px);
+  line-height: 1.5;
+  color: var(--ink-dim);
+}
+.journal__close b { color: var(--run); font-weight: 500; }
+
+@media (max-width: 560px) {
+  .journal__legs::before { left: 4.4rem; }
+  .journal__leg { grid-template-columns: 3.8rem 1.2rem 1fr; }
+  .journal__day { font-size: 9.5px; }
+}
+
 /* ───────────────────────────── send one ───────────────────────────── */
 
 .send {
@@ -396,7 +556,13 @@ input:focus { border-color: #3d5f8c; box-shadow: 0 0 0 3px rgba(56,132,248,.12);
   text-align: center;
 }
 .send__inner { max-width: var(--measure); margin: 0 auto; }
-.send__lede { color: var(--ink-dim); }
+.send__lede {
+  color: var(--ink-dim);
+  font-family: var(--serif);
+  font-optical-sizing: auto;
+  font-size: clamp(15px, 1.8vw, 18px);
+  line-height: 1.55;
+}
 
 .send__steps {
   list-style: none;
@@ -472,6 +638,11 @@ input:focus { border-color: #3d5f8c; box-shadow: 0 0 0 3px rgba(56,132,248,.12);
 }
 .foot p { max-width: var(--measure); margin: 0 auto 1rem; }
 .foot__caveat { font-style: italic; }
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .telemetry__bar { transition: none; }
+}
 
 @media (max-width: 880px) {
   .calc__grid { grid-template-columns: 1fr; }

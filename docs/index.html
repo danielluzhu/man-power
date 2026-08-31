@@ -12,6 +12,9 @@
 <meta name="theme-color" content="#070d15">
 
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏃</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300..700&display=swap">
 <link rel="stylesheet" href="./style.css">
 </head>
 <!-- Where the running app lives. Every sign-in link on this page is wired
@@ -31,11 +34,14 @@
 
 <!-- ─────────────────────────────── hero ─────────────────────────────── -->
 <header class="hero" id="top">
+  <!-- A real journey, computed by the real engine at build time, running on a
+       loop. Twenty-three days in half a minute. -->
+  <canvas id="hero-globe" class="hero__globe" aria-hidden="true"></canvas>
+  <div class="hero__veil"></div>
+
   <div class="hero__inner">
     <h1 class="wordmark">MAN<span>POWER</span></h1>
-    <p class="lede">
-      Carrier-pigeon messaging, except the courier is the fastest human alive.
-    </p>
+    <p class="lede">Carrier-pigeon messaging, except the courier is the fastest human alive.</p>
     <p class="sub">
       Your message is not transmitted. It is <em>carried</em> — run across every
       landmass, swum across every sea, at world-record pace the whole way. It
@@ -45,11 +51,22 @@
       <a class="btn btn--primary" data-app-link>Sign in and send one</a>
       <a class="btn" href="#calculator">Time a journey first</a>
     </div>
-    <p class="hero__note">
-      A phone number and a six-digit code. No password to invent or forget.
-    </p>
+    <p class="hero__note">A phone number and a six-digit code. No password to invent or forget.</p>
   </div>
-  <div class="hero__fade"></div>
+
+  <!-- Reads out the courier's progress as it happens, so the animation is
+       legible as a journey rather than decoration. -->
+  <figure class="telemetry" id="telemetry" aria-hidden="true">
+    <figcaption class="telemetry__route" data-hero-route></figcaption>
+    <div class="telemetry__row">
+      <span class="telemetry__day" data-hero-day></span>
+      <span class="telemetry__sep">·</span>
+      <span data-hero-covered></span>
+      <span class="telemetry__sep">·</span>
+      <span data-hero-mode></span>
+    </div>
+    <div class="telemetry__track"><div class="telemetry__bar" data-hero-progress></div></div>
+  </figure>
 </header>
 
 <!-- ──────────────────────────── calculator ──────────────────────────── -->
@@ -183,6 +200,22 @@
       stops falling.
     </p>
   </aside>
+</section>
+
+<!-- ───────────────────────────── the journal ────────────────────────── -->
+<section class="journal" id="journal">
+  <div class="journal__intro">
+    <h2>Twenty-three days, written down</h2>
+    <p>
+      This is the crossing above, in full. Not an illustration of one — the
+      actual legs the router chose, timed against the actual records, from the
+      moment the courier leaves Manhattan to the moment they knock in London.
+    </p>
+  </div>
+
+  <ol class="journal__legs" id="journal-legs"></ol>
+
+  <p class="journal__close" id="journal-close"></p>
 </section>
 
 <!-- ──────────────────────────── send one ────────────────────────────── -->

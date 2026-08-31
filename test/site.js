@@ -110,6 +110,24 @@ try {
   check("dragging turns the globe", Math.abs(turned.lon - camera.lon) > 1,
         `${camera.lon}° → ${turned.lon}°`);
 
+  // The hero shows a journey rather than describing one, and that journey has
+  // to be the one this engine actually plans — showcase.json is generated, so
+  // it can go stale without anything looking wrong.
+  const heroFirst = await page.$eval("[data-hero-covered]", (el) => el.textContent);
+  await wait(2500);
+  const heroLater = await page.$eval("[data-hero-covered]", (el) => el.textContent);
+  check("the courier is moving in the hero", heroFirst !== heroLater,
+        `${heroFirst} → ${heroLater}`);
+  check("the hero names the journey",
+        /New York City/.test(await page.$eval("[data-hero-route]", (el) => el.textContent)));
+
+  const journalLegs = await page.$$eval("#journal-legs li", (ns) => ns.length);
+  check("the journal writes out every leg, and matches the current engine",
+        journalLegs === expected.legs.length,
+        `journal ${journalLegs}, engine ${expected.legs.length}`);
+  check("the journal closes with what the detour bought",
+        /sooner than swimming straight/.test(await page.$eval("#journal-close", (el) => el.textContent)));
+
   // The way in has to be findable: the page is long, and the hero's buttons
   // scroll out of sight almost immediately.
   const signIn = await page.$$eval("[data-app-link]", (nodes) =>
