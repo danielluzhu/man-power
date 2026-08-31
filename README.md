@@ -329,6 +329,16 @@ The number is the identity and never leaves the server: it is absent from every
 response about somebody else, and its owner sees only a masked form of their
 own.
 
+**The flow.** Three steps, drawn as waypoints on a route so it is obvious how
+short it is. The code is six boxes behaving as one field — pasting from a
+message fills all of them and submits, autofill works, backspace walks
+backwards, and the sixth digit signs you in without reaching for a button. A
+wrong code clears the boxes rather than leaving the mistake sitting there.
+
+Both of the server's real limits are visible rather than sprung on you: the code
+counts down to its expiry, and resending is held off with the wait shown. Naming
+your city sends the globe behind the card to go and look at it.
+
 **Codes.** Six digits is a weak secret by construction, so: stored as an HMAC
 bound to the number, expiring in ten minutes, burned after five wrong guesses,
 cancelled when a new one is asked for, and compared in constant time. The
