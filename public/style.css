@@ -516,6 +516,11 @@ textarea { resize: vertical; min-height: 6rem; line-height: 1.6; }
 /* ─────────────────────────────── records ────────────────────────────── */
 
 .ladder { margin-bottom: 1.75rem; }
+/* Set here rather than inline, so the page can run under a CSP that forbids
+   inline styles outright. */
+.hud__sealed { color: var(--ink-faint); }
+.ladder__note { margin-bottom: .6rem; }
+
 .ladder h3 {
   font-size: 12px; letter-spacing: .1em; text-transform: uppercase;
   color: var(--ink-faint); margin: 0 0 .6rem;

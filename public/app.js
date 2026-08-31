@@ -510,7 +510,7 @@ function renderHud() {
     body.textContent = msg.body;
   } else {
     body.hidden = false;
-    body.innerHTML = `<em style="color:var(--ink-faint)">The courier still has this in hand. It opens on arrival.</em>`;
+    body.innerHTML = `<em class="hud__sealed">The courier still has this in hand. It opens on arrival.</em>`;
   }
 
   const legs = msg.route?.legs || [];
@@ -585,7 +585,7 @@ function renderRecords(data) {
   const table = (title, note, rows) => `
     <div class="ladder">
       <h3>${title}</h3>
-      <p class="view__sub" style="margin-bottom:.6rem">${note}</p>
+      <p class="view__sub ladder__note">${note}</p>
       <table>
         <colgroup>
           <col class="c-dist"><col class="c-time"><col class="c-who"><col class="c-pace">

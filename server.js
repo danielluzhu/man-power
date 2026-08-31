@@ -115,6 +115,56 @@ const LIMITS = {
 // way to invent a new address per request and walk past every limit above.
 const TRUST_PROXY = process.env.TRUST_PROXY !== "0";
 
+/* ----------------------------------------------------- security headers --- */
+
+/**
+ * Headers every response carries.
+ *
+ * This is about to be reachable from the open internet rather than from one
+ * developer's laptop, and none of these were set.
+ *
+ * The content policy is strict on purpose, including for styles: the two inline
+ * style attributes the app used to generate were moved into the stylesheet so
+ * 'unsafe-inline' would not be needed anywhere. A violation logs to the console,
+ * and the browser suite fails on any console error, so this cannot rot quietly.
+ */
+const CONTENT_POLICY = [
+  "default-src 'self'",
+  "script-src 'self'",
+  "style-src 'self'",
+  // The favicon is an inline SVG data URI; the globe texture is a same-origin PNG.
+  "img-src 'self' data:",
+  "connect-src 'self'",
+  "font-src 'self'",
+  "object-src 'none'",
+  "base-uri 'none'",
+  "form-action 'self'",
+  "frame-ancestors 'none'",
+].join("; ");
+
+/** True when the request reached the proxy over HTTPS. */
+const isSecure = (req) =>
+  req.headers.get("x-forwarded-proto") === "https" || new URL(req.url).protocol === "https:";
+
+function harden(response, req) {
+  const headers = response.headers;
+  headers.set("content-security-policy", CONTENT_POLICY);
+  headers.set("x-content-type-options", "nosniff");
+  headers.set("referrer-policy", "strict-origin-when-cross-origin");
+  headers.set("cross-origin-opener-policy", "same-origin");
+  // Nothing here needs a camera, a microphone or a location.
+  headers.set("permissions-policy", "camera=(), microphone=(), geolocation=(), payment=()");
+
+  if (isSecure(req)) {
+    headers.set("strict-transport-security", "max-age=31536000; includeSubDomains");
+  }
+  // Anything carrying a session or a phone number must not sit in a shared cache.
+  if (new URL(req.url).pathname.startsWith("/api/")) {
+    headers.set("cache-control", "no-store");
+  }
+  return response;
+}
+
 /* ------------------------------------------------------------- helpers --- */
 
 function json(data, status = 200, headers = {}) {
@@ -134,11 +184,18 @@ const fail = (message, status = 400) => json({ error: message }, status);
 
 const cookieToken = (req) => cookie(req, "mp_session");
 
-const sessionCookie = (token) =>
-  `mp_session=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${60 * 60 * 24 * 365}`;
+/**
+ * Session cookies. `Secure` is added when the request arrived over HTTPS, so
+ * the cookie is never sent in the clear in production but development over
+ * plain HTTP still works.
+ */
+const sessionCookie = (token, req) =>
+  `mp_session=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${60 * 60 * 24 * 365}` +
+  (isSecure(req) ? "; Secure" : "");
 
-const enrolmentCookie = (token) =>
-  `mp_enrol=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=600`;
+const enrolmentCookie = (token, req) =>
+  `mp_enrol=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=600` +
+  (isSecure(req) ? "; Secure" : "");
 
 const CLEARED_ENROLMENT = "mp_enrol=; Path=/; Max-Age=0";
 
@@ -322,13 +379,13 @@ const routes = {
     if (existing) {
       const token = store.createSession(db, existing.id);
       return json({ user: store.publicUser(existing) }, 200, {
-        "set-cookie": sessionCookie(token),
+        "set-cookie": sessionCookie(token, req),
       });
     }
 
     const enrolment = store.createEnrolment(db, number.e164);
     return json({ needsProfile: true, masked: maskPhone(number.e164) }, 200, {
-      "set-cookie": enrolmentCookie(enrolment),
+      "set-cookie": enrolmentCookie(enrolment, req),
     });
   },
 
@@ -364,7 +421,7 @@ const routes = {
 
     const token = store.createSession(db, user.id);
     return json({ user: store.publicUser(user) }, 200, {
-      "set-cookie": [sessionCookie(token), CLEARED_ENROLMENT],
+      "set-cookie": [sessionCookie(token, req), CLEARED_ENROLMENT],
     });
   },
 
@@ -556,30 +613,30 @@ const server = Bun.serve({
 
     if (routes[key]) {
       try {
-        return await routes[key](req, server);
+        return harden(await routes[key](req, server), req);
       } catch (err) {
         console.error(key, err);
-        return fail("Something went wrong on the server", 500);
+        return harden(fail("Something went wrong on the server", 500), req);
       }
     }
 
     const detail = url.pathname.match(/^\/api\/messages\/(\d+)$/);
-    if (detail && req.method === "GET") return messageDetail(req, detail[1]);
-    if (url.pathname.startsWith("/api/")) return fail("Not found", 404);
+    if (detail && req.method === "GET") return harden(messageDetail(req, detail[1]), req);
+    if (url.pathname.startsWith("/api/")) return harden(fail("Not found", 404), req);
 
     // Shared great-circle math, so the browser animates the courier with the
     // same code the server used to time the journey.
     if (url.pathname === "/sphere.js") {
-      return new Response(Bun.file("src/sphere.js"), {
+      return harden(new Response(Bun.file("src/sphere.js"), {
         headers: { "content-type": "text/javascript" },
-      });
+      }), req);
     }
 
     // Static files, with index.html as the fallback for client-side routes.
     const path = url.pathname === "/" ? "/index.html" : url.pathname;
     const file = Bun.file(`public${path}`);
-    if (await file.exists()) return new Response(file);
-    return new Response(Bun.file("public/index.html"));
+    if (await file.exists()) return harden(new Response(file), req);
+    return harden(new Response(Bun.file("public/index.html")), req);
   },
 });
 
