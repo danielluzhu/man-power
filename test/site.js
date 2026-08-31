@@ -43,9 +43,17 @@ const world = {
   grid: RoutingGrid.downsample(mask, elevation, 0.2),
   coarse: RoutingGrid.downsample(mask, elevation, 1.0, { optimistic: true }),
 };
-const expected = buildRoute(world,
-  { lat: 40.7128, lon: -74.0060 },   // New York City, the page's default
-  { lat: 51.5074, lon: -0.1278 });   // London
+// The page routes between gazetteer coordinates, so the comparison has to start
+// from the same ones — a kilometre's difference at either end changes where the
+// route crosses the Bering Strait, and with it the number of legs.
+const { cities } = await Bun.file("docs/data/cities.json").json();
+const placed = (name) => {
+  const row = cities.find((c) => c[0] === name);
+  if (!row) throw new Error(`${name} is missing from the site's gazetteer`);
+  return { lat: row[3], lon: row[4] };
+};
+
+const expected = buildRoute(world, placed("San Francisco"), placed("Shanghai"));
 
 const browser = await puppeteer.launch({
   executablePath: CHROMIUM,
@@ -83,8 +91,10 @@ try {
   check("terrain routing is in play", /further than the direct line/.test(result));
 
   // A route with nothing to go around should say so rather than claim a gain.
+  // San Francisco to Las Vegas is flat, inland and exactly the direct line —
+  // Los Angeles is not, since the coast range is worth going around.
   await page.click('[data-role="to"] .citypick__input', { clickCount: 3 });
-  await page.type('[data-role="to"] .citypick__input', "Los Angeles");
+  await page.type('[data-role="to"] .citypick__input', "Las Vegas");
   await page.waitForSelector('[data-role="to"] .citypick__results li', { visible: true });
   await page.click('[data-role="to"] .citypick__results li');
   await wait(1500);
@@ -119,7 +129,11 @@ try {
   check("the courier is moving in the hero", heroFirst !== heroLater,
         `${heroFirst} → ${heroLater}`);
   check("the hero names the journey",
-        /New York City/.test(await page.$eval("[data-hero-route]", (el) => el.textContent)));
+        /San Francisco/.test(await page.$eval("[data-hero-route]", (el) => el.textContent)));
+  check("the journal's headline counts the days of the route it describes",
+        new RegExp(`^${["Twenty-four", "Twenty-five", "Twenty-six"].join("|")} days, written down$`)
+          .test(await page.$eval("[data-journal-title]", (el) => el.textContent)),
+        await page.$eval("[data-journal-title]", (el) => el.textContent));
 
   const journalLegs = await page.$$eval("#journal-legs li", (ns) => ns.length);
   check("the journal writes out every leg, and matches the current engine",

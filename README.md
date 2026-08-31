@@ -5,9 +5,10 @@ Carrier-pigeon messaging, except the courier is the fastest human alive.
 Send a message and it does not appear in the recipient's inbox until enough real
 time has passed for a world-record athlete to have physically covered the
 distance between you — running every landmass, swimming every sea, over real
-terrain, by the fastest route they could take. New York to London takes about
-**23 days**, and the courier goes by way of Greenland. There is no way to hurry
-it.
+terrain, by the fastest route they could take. San Francisco to Shanghai takes
+about **25 days**, and the courier walks the rim of the Pacific rather than
+swimming it — up through Alaska, across the Bering Strait, down through Siberia.
+There is no way to hurry it.
 
 **→ [Time a journey yourself](https://danielluzhu.github.io/man-power/)** — the
 project site runs the real routing engine in your browser, no server involved.
@@ -84,14 +85,16 @@ special-cased:
 
 | Route | What it does | Result |
 |---|---|---|
+| San Francisco → Shanghai | walks the Pacific rim via the **Bering Strait** rather than swimming it | 9,313 km of swimming becomes 499 km; **2.6× faster** |
 | Madrid → Casablanca | crosses at Gibraltar instead of swimming wide | 328 km of swimming becomes 26 km; **41% faster** |
 | New York → London | hops Baffin Island, Greenland and Iceland | no open-water leg over 844 km; **25% faster** |
 | Lima → New York | hugs the Americas rather than cutting the Caribbean | **36% faster** |
 | Delhi → Beijing | rounds the Himalaya through the Tarim Basin | 6,000 m less climbing |
 | New York → Los Angeles | nothing worth going around | the straight line, unchanged |
 
-Swimming is 3.4× slower than running, so a route will go hundreds of kilometres
-out of its way to find a narrow crossing. Climbing costs time and thin air costs
+Swimming is 3.4× slower than running, so a route will go thousands of kilometres
+out of its way to find a narrow crossing — the Pacific one is the clearest case,
+adding 900 km on foot to avoid nine thousand in open water. Climbing costs time and thin air costs
 more, so it prefers to go around a range than over it.
 
 ### How it works

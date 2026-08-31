@@ -17,8 +17,15 @@ import { LandMask, buildRoute } from "../src/geo.js";
 import { Elevation } from "../src/terrain.js";
 import { RoutingGrid } from "../src/router.js";
 
-const FROM = { name: "New York City", country: "United States", lat: 40.7128, lon: -74.0060 };
-const TO = { name: "London", country: "United Kingdom", lat: 51.5074, lon: -0.1278 };
+/**
+ * San Francisco to Shanghai, which is the most articulate route this engine
+ * plans. Swum straight it is nine thousand kilometres of open Pacific; the
+ * courier instead walks the rim of it — up through British Columbia and Alaska,
+ * across the Bering Strait, down through Siberia and Manchuria — and arrives
+ * two and a half times sooner for going the long way round.
+ */
+const FROM_NAME = "San Francisco";
+const TO_NAME = "Shanghai";
 
 const OUT_PATH = "docs/data/showcase.json";
 
@@ -32,6 +39,28 @@ function thin(points, max = 20) {
 }
 
 const round = (n, places) => Math.round(n * 10 ** places) / 10 ** places;
+
+/**
+ * Coordinates come from the same gazetteer the calculator searches, not from
+ * numbers typed here.
+ *
+ * They differ by a kilometre or two, which sounds harmless and is not: a
+ * slightly different starting point crosses the Bering Strait at a slightly
+ * different place and the route comes out with a different number of legs. The
+ * hero would then narrate one journey while the calculator underneath it
+ * computed another.
+ */
+const { cities, countries } = await Bun.file("data/cities.json").json();
+
+function lookUp(name) {
+  // Cities are sorted by population, so the first match is the one anybody means.
+  const found = cities.find((c) => c[0] === name);
+  if (!found) throw new Error(`${name} is not in the gazetteer`);
+  return { name: found[0], country: countries[found[1]] || found[1], lat: found[3], lon: found[4] };
+}
+
+const FROM = lookUp(FROM_NAME);
+const TO = lookUp(TO_NAME);
 
 const mask = await LandMask.load();
 const elevation = await Elevation.fromGzip(await Bun.file("data/elevation.bin.gz").arrayBuffer());

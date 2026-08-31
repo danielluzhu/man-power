@@ -18,10 +18,10 @@ import { Globe } from "./lib/globe.js";
 const $ = (sel, root = document) => root.querySelector(sel);
 
 const PRESETS = [
+  ["San Francisco", "Shanghai"],
   ["New York City", "London"],
   ["Sydney", "Santiago"],
   ["Cairo", "Cape Town"],
-  ["Tokyo", "San Francisco"],
   ["Lisbon", "Reykjavík"],
   ["Mumbai", "Nairobi"],
 ];
@@ -447,12 +447,20 @@ function startHero(showcase, outline) {
   const from = { lat: showcase.from.lat, lon: showcase.from.lon };
   const to = { lat: showcase.to.lat, lon: showcase.to.lon };
 
+  /**
+   * The camera follows the courier rather than framing the whole route.
+   *
+   * San Francisco to Shanghai spans some two hundred and forty degrees of
+   * longitude — more than a hemisphere — so there is no single view that holds
+   * all of it, and framing the lot leaves half the journey round the back. So
+   * the world turns underneath the runner instead, which is both the only way
+   * to watch the whole crossing and a better thing to watch.
+   */
+  const FOLLOW_ZOOM = 1.55;
+
   const resize = () => {
     globe.resize();
-    const shot = globe.frameRoute({ legs: full }, from, to);
-    // A touch wider than the route needs, so it sits in the frame rather than
-    // filling it edge to edge.
-    if (shot) globe.jumpTo(shot.lat, shot.lon, shot.zoom * 0.86);
+    globe.jumpTo(from.lat, from.lon, FOLLOW_ZOOM);
   };
   window.addEventListener("resize", resize);
   resize();
@@ -469,6 +477,9 @@ function startHero(showcase, outline) {
    */
   const stillness = window.matchMedia("(prefers-reduced-motion: reduce)");
   const drawArrived = () => {
+    // Still, so the whole route has to fit rather than being followed.
+    const shot = globe.frameRoute({ legs: full }, from, to);
+    if (shot) globe.jumpTo(shot.lat, shot.lon, shot.zoom * 0.9);
     globe.render({
       route: { legs: full },
       from,
@@ -491,6 +502,12 @@ function startHero(showcase, outline) {
       : (cycle / LOOP_SECONDS) * showcase.totalSeconds;
 
     const trail = trailAt({ ...showcase, legs: legsForTrail }, elapsed);
+
+    // Keep the courier in view, trailing gently so the globe glides rather than
+    // snapping from waypoint to waypoint.
+    const looking = arrived ? to : trail.here ?? from;
+    globe.lookAt(looking.lat, looking.lon, FOLLOW_ZOOM);
+    globe.step(0.05);
 
     globe.render({
       ghost: { legs: full },
@@ -523,6 +540,25 @@ function startHero(showcase, outline) {
 
 /* ────────────────────────────── the journal ───────────────────────────── */
 
+const ONES = [
+  "zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine",
+  "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen",
+  "seventeen", "eighteen", "nineteen",
+];
+const TENS = ["", "", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"];
+
+/** Spelled out, because "Twenty-five days" is a sentence and "25 days" is a value. */
+function spell(n) {
+  if (n < 20) return ONES[n];
+  if (n < 100) {
+    const rest = n % 10;
+    return TENS[Math.floor(n / 10)] + (rest ? `-${ONES[rest]}` : "");
+  }
+  return String(n);
+}
+
+const capitalise = (word) => word[0].toUpperCase() + word.slice(1);
+
 /**
  * The same crossing, written out. Every line is real: the legs the router
  * chose, timed against the records that govern them.
@@ -530,6 +566,15 @@ function startHero(showcase, outline) {
 function renderJournal(showcase) {
   const list = $("#journal-legs");
   if (!list) return;
+
+  // Written from the route rather than typed into the page, so changing the
+  // journey cannot leave the words describing the old one.
+  const days = Math.round(showcase.totalSeconds / 86400);
+  $("[data-journal-title]").textContent = `${capitalise(spell(days))} days, written down`;
+  $("[data-journal-blurb]").textContent =
+    `This is the crossing above, in full. Not an illustration of one — the actual ` +
+    `legs the router chose, timed against the actual records, from the moment the ` +
+    `courier leaves ${showcase.from.name} to the moment they knock in ${showcase.to.name}.`;
 
   const dayOf = (seconds) => Math.floor(seconds / 86400) + 1;
 
@@ -643,8 +688,9 @@ async function boot() {
 
   $("#swap").addEventListener("click", () => setEnds(pickers, ends.to, ends.from));
 
-  // Open on the journey the README quotes, so there is something to read at once.
-  setEnds(pickers, findCity("New York City"), findCity("London"));
+  // Open on the same journey the page above tells, so the calculator confirms
+  // what you just watched rather than introducing a new one.
+  setEnds(pickers, findCity("San Francisco"), findCity("Shanghai"));
 }
 
 boot().catch((err) => {
