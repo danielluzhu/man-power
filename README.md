@@ -384,12 +384,37 @@ cancelled when a new one is asked for, and compared in constant time. The
 attempt is counted *before* it is checked, so a crash mid-verify cannot buy a
 free guess.
 
-**SMS** goes through a swappable transport. With no credentials it writes codes
-to the journal, which makes the whole flow work on a development machine; set
-`TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` and `TWILIO_FROM` and it sends for
-real with nothing else changing. Half-configuring it is refused at startup —
-quietly falling back to printing codes in a log would be the worst possible
-outcome.
+### Sending the codes for real
+
+With no credentials the app writes codes to its journal, which makes the whole
+flow work on a development machine and is unusable in public — anyone who can
+read the log can sign in as anyone. The sign-in page says so outright rather
+than claiming a message is on its way.
+
+Put credentials in `/etc/man-power/sms.env` (the installer creates it, root-owned
+and group-readable by the service) and restart:
+
+| Provider | Variables |
+|---|---|
+| Twilio | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM` |
+| Vonage | `VONAGE_API_KEY`, `VONAGE_API_SECRET`, `VONAGE_FROM` |
+
+```bash
+sudo systemctl restart man-power
+bun run sms:test +447911123456     # sends one real message
+```
+
+Run that before trusting it. Credentials that look right and do not work are the
+expensive failure here: the app starts, the page promises a code, and nobody
+finds out until someone waits for a text sitting in a log. Both providers'
+trials only text numbers verified with them, which is the usual first surprise.
+
+Half-configuring a provider is refused at startup, naming what is missing.
+Falling back to the journal there would look like it works, right up until it
+mattered.
+
+`PUBLIC_ORIGIN` belongs in the same file — WebOTP only autofills when the
+message names the origin the app actually answers from.
 
 **Numbers are normalised to E.164** with libphonenumber rather than a regular
 expression. Once a number is an identity, `+44 7911 123456`, `07911 123456` and
