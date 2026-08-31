@@ -733,7 +733,18 @@ function showAuthStep(step) {
   $$(".waypoints__leg").forEach((leg, i) => {
     leg.classList.toggle("is-done", i < reached);
     leg.classList.toggle("is-here", i === reached);
+    // Screen readers get the position; sighted users get the amber dot.
+    if (i === reached) leg.setAttribute("aria-current", "step");
+    else leg.removeAttribute("aria-current");
   });
+
+  // Moving between steps is silent otherwise: the heading never changes and the
+  // fields simply swap underneath.
+  $("#auth-status").textContent = {
+    phone: "Step 1 of 3. Enter your phone number.",
+    code: "Step 2 of 3. Enter the six digit code we sent you.",
+    profile: "Step 3 of 3. Choose a handle and your home city.",
+  }[step];
 
   const focus = {
     phone: "#phone",
@@ -748,11 +759,13 @@ function showAuthStep(step) {
 /** Buttons that are doing something say so, and cannot be pressed twice. */
 async function whileBusy(button, work) {
   button.classList.add("is-busy");
+  button.setAttribute("aria-busy", "true");
   button.disabled = true;
   try {
     return await work();
   } finally {
     button.classList.remove("is-busy");
+    button.removeAttribute("aria-busy");
     button.disabled = false;
   }
 }
@@ -824,6 +837,11 @@ function initCodeBoxes(onComplete) {
   return {
     value,
     clear,
+    /** Fill every box at once, as an autofilled or pasted code does. */
+    set(digits) {
+      clear();
+      fill(digits, 0);
+    },
     reset() {
       clear();
       boxes[0].focus();
@@ -841,6 +859,38 @@ function initCodeBoxes(onComplete) {
 }
 
 let codeBoxes;
+
+/**
+ * Ask the browser to read the code out of the incoming text message.
+ *
+ * WebOTP: on Android Chrome the message is matched against this exact origin
+ * and offered as a credential, so the code fills itself and signs the person in
+ * without them touching the keyboard. Everywhere else this is simply absent,
+ * and the boxes work as normal — so it is a bonus, never a dependency.
+ */
+let otpListener = null;
+
+function listenForTexts() {
+  stopListeningForTexts();
+  if (!("OTPCredential" in window)) return;
+
+  otpListener = new AbortController();
+  navigator.credentials
+    .get({ otp: { transport: ["sms"] }, signal: otpListener.signal })
+    .then((credential) => {
+      if (!credential?.code || auth.step !== "code") return;
+      codeBoxes.set(credential.code);
+    })
+    .catch(() => {
+      // Aborted when leaving the step, or the person dismissed the prompt.
+      // Neither is a problem worth reporting.
+    });
+}
+
+function stopListeningForTexts() {
+  otpListener?.abort();
+  otpListener = null;
+}
 
 /* ── the code's short life ────────────────────────────────────────────── */
 
@@ -927,6 +977,7 @@ async function requestCode() {
   codeBoxes.clear();
   showAuthStep("code");
   startCodeClock();
+  listenForTexts();
 }
 
 async function submitCode() {
@@ -942,6 +993,7 @@ async function submitCode() {
   await whileBusy($('#code-form button[type="submit"]'), async () => {
     try {
       const result = await post("/api/auth/verify", { phone: auth.phone, code });
+      stopListeningForTexts();
       if (result.needsProfile) showAuthStep("profile");
       else await enterApp();
     } catch (ex) {
@@ -994,6 +1046,7 @@ function wireAuth() {
 
   $("[data-restart]").addEventListener("click", () => {
     auth.phone = null;
+    stopListeningForTexts();
     clearInterval(startCodeClock.timer);
     errorFor("code").textContent = "";
     codeBoxes.clear();

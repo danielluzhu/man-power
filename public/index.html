@@ -29,6 +29,8 @@
     <!-- Progress drawn as three waypoints on a route, because that is what the
          product is about, and because three plain forms give no sense that you
          are partway through something short. -->
+    <p class="sr-only" id="auth-status" role="status" aria-live="polite"></p>
+
     <ol class="waypoints" id="waypoints" aria-label="Progress">
       <li class="waypoints__leg" data-for="phone"><i></i><span>Number</span></li>
       <li class="waypoints__leg" data-for="code"><i></i><span>Code</span></li>
@@ -60,7 +62,7 @@
         <button class="btn btn--primary btn--block" type="submit" data-label="Send me a code">
           Send me a code
         </button>
-        <p class="form__error" data-error></p>
+        <p class="form__error" data-error role="alert"></p>
       </form>
 
       <form id="code-form" class="step form" data-step="code" hidden>
@@ -72,7 +74,8 @@
           <span class="field__label">Enter the code</span>
           <!-- Six boxes rather than one field: it shows how many digits are
                wanted, and makes a mistyped digit obvious. -->
-          <div class="code" id="code" role="group" aria-label="Six digit code">
+          <div class="code" id="code" role="group" aria-label="Six digit code"
+               aria-describedby="code-expiry">
             <input inputmode="numeric" autocomplete="one-time-code" maxlength="1" aria-label="Digit 1">
             <input inputmode="numeric" maxlength="1" aria-label="Digit 2">
             <input inputmode="numeric" maxlength="1" aria-label="Digit 3">
@@ -80,7 +83,9 @@
             <input inputmode="numeric" maxlength="1" aria-label="Digit 5">
             <input inputmode="numeric" maxlength="1" aria-label="Digit 6">
           </div>
-          <p class="field__hint" data-expiry></p>
+          <!-- Not a live region: a countdown announced every second would make
+               the page unusable with a screen reader. -->
+          <p class="field__hint" id="code-expiry" data-expiry></p>
         </div>
 
         <button class="btn btn--primary btn--block" type="submit" data-label="Sign in">Sign in</button>
@@ -88,7 +93,7 @@
           <button type="button" class="linky" data-resend>Send another</button>
           <button type="button" class="linky" data-restart>Use a different number</button>
         </div>
-        <p class="form__error" data-error></p>
+        <p class="form__error" data-error role="alert"></p>
       </form>
 
       <form id="profile-form" class="step form" data-step="profile" hidden>
@@ -114,7 +119,7 @@
         </div>
 
         <button class="btn btn--primary btn--block" type="submit" data-label="Enlist">Enlist</button>
-        <p class="form__error" data-error></p>
+        <p class="form__error" data-error role="alert"></p>
       </form>
     </div>
   </div>

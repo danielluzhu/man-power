@@ -162,6 +162,24 @@ textarea { resize: vertical; min-height: 6rem; line-height: 1.6; }
 }
 .brand__more:hover { color: var(--run); }
 
+/* Present to assistive technology, absent from the page. */
+.sr-only {
+  position: absolute;
+  width: 1px; height: 1px;
+  margin: -1px; padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Keyboard users need to see where they are; mouse users do not need a ring. */
+:focus-visible {
+  outline: 2px solid var(--run);
+  outline-offset: 2px;
+}
+
 /* ── signing in ─────────────────────────────────────────────────────────── */
 
 .auth__head { margin-bottom: 1.6rem; }
@@ -221,6 +239,23 @@ textarea { resize: vertical; min-height: 6rem; line-height: 1.6; }
   background: var(--run);
   border-color: var(--run);
   box-shadow: 0 0 0 4px rgba(240,180,41,.18);
+}
+
+/*
+ * Movement is decoration here, and for some people it is worse than that. Under
+ * a reduced-motion preference the steps simply appear, the wrong-code shake is
+ * dropped, and a working button says so in words rather than spinning — a
+ * frozen spinner would be worse than none.
+ */
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .step.is-entering { animation: none; }
+  .code.is-wrong { animation: none; }
+  .waypoints::after { transition: none; }
+  .waypoints__leg, .waypoints__leg i { transition: none; }
+
+  .btn.is-busy { color: inherit; opacity: .6; }
+  .btn.is-busy::after { display: none; }
 }
 
 /* Steps are stacked in one box so the card does not jump as they swap. */

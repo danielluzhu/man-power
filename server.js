@@ -54,7 +54,18 @@ const startedAt = Date.now();
 // baked in permanently. Watch it rather than trust it.
 const vapid = await loadVapid();
 const sms = smsTransport();
-console.log(`SMS transport: ${sms.name}${sms.live ? "" : " (development — codes go to this log)"}`);
+
+/**
+ * Where this app answers from, as browsers see it.
+ *
+ * Needed because WebOTP — the API that lets Android read the code straight out
+ * of the message — only fires when the SMS names the exact origin it is for.
+ * That binding is the whole point of it: a code texted for one site cannot be
+ * autofilled into another.
+ */
+const PUBLIC_ORIGIN = (process.env.PUBLIC_ORIGIN || "https://man-4321.another.ac").replace(/\/+$/, "");
+const OTP_DOMAIN = new URL(PUBLIC_ORIGIN).host;
+console.log(`SMS transport: ${sms.name}${sms.live ? "" : " (development — codes go to this log)"} · origin ${PUBLIC_ORIGIN}`);
 
 // Expired codes and abandoned enrolments are worthless; sweep them hourly.
 setInterval(() => {
@@ -333,7 +344,12 @@ const routes = {
     try {
       await sms.send({
         to: number.e164,
-        body: `${code} is your Man Power code. It expires in ten minutes.`,
+        // The last line is the WebOTP handshake: origin, then the code. It has
+        // to be exactly this shape and exactly last, or Android ignores it and
+        // the message is merely readable rather than fillable.
+        body:
+          `${code} is your Man Power code. It expires in ten minutes.\n\n` +
+          `@${OTP_DOMAIN} #${code}`,
       });
     } catch (err) {
       console.error(`Could not send a code to ${maskPhone(number.e164)}: ${err.message}`);

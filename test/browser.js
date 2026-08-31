@@ -146,6 +146,13 @@ try {
 
   check("progress advances to the code step",
         await page.$eval("#waypoints", (el) => el.dataset.reached) === "code");
+  check("the current step is announced and marked",
+        /Step 2 of 3/.test(await page.$eval("#auth-status", (el) => el.textContent)) &&
+        await page.$eval('.waypoints__leg[data-for="code"]', (el) => el.getAttribute("aria-current")) === "step");
+  check("the code group is described by its expiry note",
+        await page.$eval("#code", (el) => el.getAttribute("aria-describedby")) === "code-expiry");
+  check("errors announce themselves",
+        await page.$$eval("#auth [data-error]", (ns) => ns.every((n) => n.getAttribute("role") === "alert")));
   check("it says which number the code went to",
         /\+\d+[^\d]*\d{3}/.test(await page.$eval("[data-masked]", (el) => el.textContent)));
   check("the code has a visible expiry",
