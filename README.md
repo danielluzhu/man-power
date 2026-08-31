@@ -278,6 +278,25 @@ journalctl -u man-power -f
 curl -s localhost:4321/api/health | jq
 ```
 
+## Exposed to the internet
+
+The app sends a strict content policy, `nosniff`, a referrer policy, an opener
+policy, a permissions policy denying camera, microphone, location and payment,
+and HSTS once a request has arrived over HTTPS. API responses are `no-store` —
+they carry sessions and phone numbers. Session cookies gain `Secure` over HTTPS
+and still work over plain HTTP in development.
+
+The content policy is strict including for styles: `'unsafe-inline'` is not
+needed anywhere. That is load-bearing rather than fussy, because a violation
+logs to the console and the browser suite fails on any console error — so a
+policy that quietly stops matching the app cannot survive a test run. It earned
+that immediately by catching a malformed permissions policy the browser was
+rejecting wholesale.
+
+`TRUST_PROXY` defaults on, because this runs behind the host's proxy and the
+rate limits key on `X-Forwarded-For`. Set it to `0` if the app is ever exposed
+directly, or that header becomes a way to invent an address per request.
+
 ## Running it for real
 
 The delivery mechanic is the easy part. What makes this hard to operate is that
@@ -339,7 +358,11 @@ response about somebody else, and its owner sees only a masked form of their
 own.
 
 **The flow.** Three steps, drawn as waypoints on a route so it is obvious how
-short it is. The code is six boxes behaving as one field — pasting from a
+short it is. On Android Chrome the code fills itself in: the text message ends
+with a line naming this exact origin, which is the handshake **WebOTP** looks
+for, so the browser reads the code out of the message and signs you in without
+a keystroke. Set `PUBLIC_ORIGIN` to wherever the app answers from — if it does
+not match, nothing breaks visibly, the code simply stops autofilling. The code is six boxes behaving as one field — pasting from a
 message fills all of them and submits, autofill works, backspace walks
 backwards, and the sixth digit signs you in without reaching for a button. A
 wrong code clears the boxes rather than leaving the mistake sitting there.
@@ -347,6 +370,13 @@ wrong code clears the boxes rather than leaving the mistake sitting there.
 Both of the server's real limits are visible rather than sprung on you: the code
 counts down to its expiry, and resending is held off with the wait shown. Naming
 your city sends the globe behind the card to go and look at it.
+
+**Getting there without sight.** Each step is announced, the current waypoint
+carries `aria-current`, and errors announce themselves. The expiry countdown is
+deliberately *not* a live region — read out every second it would make the page
+unusable. Under a reduced-motion preference the steps appear rather than slide
+and a working button says so in words, since a frozen spinner is worse than
+none.
 
 **Codes.** Six digits is a weak secret by construction, so: stored as an HMAC
 bound to the number, expiring in ten minutes, burned after five wrong guesses,
