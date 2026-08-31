@@ -65,6 +65,9 @@ try {
 
   check("sign-in screen is visible", await page.$eval("#auth", (el) => !el.hidden));
   check("app is hidden behind it", await page.$eval("#app", (el) => el.hidden));
+  check("it opens on the first of three steps",
+        await page.$eval("#waypoints", (el) => el.dataset.reached) === "phone" &&
+        await page.$eval("#phone-form", (el) => !el.hidden));
 
   /**
    * Enlist a courier: a number, the code that number receives, then a handle
@@ -107,9 +110,11 @@ try {
       throw new Error(`never reached the code step — the page said: ${await authComplaint()}`);
     }
 
-    await page.type("#code", await latestCode());
-    await page.click('#code-form button[type="submit"]');
-    await wait(800);
+    // Six boxes behaving as one field: typing into the first advances through
+    // them, and the sixth digit submits without touching the button.
+    await page.focus("#code input");
+    await page.keyboard.type(await latestCode());
+    await wait(1200);
 
     const complaint = await authComplaint();
     if (complaint !== "(no message on the page)") {
@@ -130,6 +135,62 @@ try {
   check("app opens after enlisting", await page.$eval("#app", (el) => !el.hidden));
 
   await signOut();
+
+  // ── the sign-on experience itself ──────────────────────────────────────
+  await page.waitForSelector("#phone-form:not([hidden])", { visible: true });
+  await page.select("#calling-code", "ES");
+  await page.type("#phone", testNumber());
+  await page.click('#phone-form button[type="submit"]');
+  await page.waitForSelector("#code-form:not([hidden])", { timeout: 20_000 });
+  await wait(1200);
+
+  check("progress advances to the code step",
+        await page.$eval("#waypoints", (el) => el.dataset.reached) === "code");
+  check("it says which number the code went to",
+        /\+\d+[^\d]*\d{3}/.test(await page.$eval("[data-masked]", (el) => el.textContent)));
+  check("the code has a visible expiry",
+        /Expires in \d+:\d\d/.test(await page.$eval("[data-expiry]", (el) => el.textContent)));
+  check("resending is held off, and says for how long",
+        await page.$eval("[data-resend]", (el) => el.disabled && /\d+:\d\d/.test(el.textContent)));
+
+  // A wrong code should clear the boxes rather than leave the mistake sitting there.
+  await page.focus("#code input");
+  await page.keyboard.type("000000");
+  await wait(1500);
+  check("a wrong code is refused and the boxes are cleared",
+        (await page.$$eval("#code input", (ns) => ns.map((n) => n.value).join(""))) === "" &&
+        (await page.$eval("#code-form [data-error]", (el) => el.textContent)).length > 0);
+
+  // Pasting into the first box should fill all six and submit on its own.
+  const pasted = await latestCode();
+  await page.focus("#code input");
+  await page.evaluate((value) => {
+    const data = new DataTransfer();
+    data.setData("text", value);
+    document.querySelector("#code input")
+      .dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true }));
+  }, pasted);
+  await page.waitForSelector("#profile-form:not([hidden])", { timeout: 20_000 });
+  check("a pasted code fills every box and submits itself", true);
+
+  // Naming a city should send the globe to look at it.
+  const before = await page.evaluate(() => window.__authGlobe?.());
+  await page.type("#profile-form .citypick__input", "Reykjavik");
+  await page.waitForSelector("#profile-form .citypick__results li", { visible: true });
+  await page.click("#profile-form .citypick__results li");
+  await wait(2500);
+  const after = await page.evaluate(() => window.__authGlobe?.());
+  check("choosing a city sends the globe there",
+        after && Math.abs(after.lat - 64.1) < 8 && after.zoom > before.zoom,
+        `${before?.lat}° → ${after?.lat}°, zoom ${before?.zoom} → ${after?.zoom}`);
+
+  await page.type('#profile-form input[name="handle"]', `spare-${stamp}`);
+  await page.click('#profile-form button[type="submit"]');
+  await page.waitForSelector("#app:not([hidden])", { timeout: 20_000 });
+  await wait(800);
+  await signOut();
+  // ───────────────────────────────────────────────────────────────────────
+
   const recipientNumber = await enlist(`getter-${stamp}`, "Reykjavik");
   await signOut();
 

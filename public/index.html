@@ -16,69 +16,102 @@
   <div class="auth__scrim"></div>
 
   <div class="auth__card">
-    <div class="brand">
+    <header class="auth__head">
       <span class="brand__mark">MAN<br>POWER</span>
       <p class="brand__tag">Messaging at the speed of the fastest human alive.</p>
+    </header>
+
+    <!-- Progress drawn as three waypoints on a route, because that is what the
+         product is about, and because three plain forms give no sense that you
+         are partway through something short. -->
+    <ol class="waypoints" id="waypoints" aria-label="Progress">
+      <li class="waypoints__leg" data-for="phone"><i></i><span>Number</span></li>
+      <li class="waypoints__leg" data-for="code"><i></i><span>Code</span></li>
+      <li class="waypoints__leg" data-for="profile"><i></i><span>You</span></li>
+    </ol>
+
+    <div class="steps">
+      <!-- Signing in and enlisting are the same act: a number, then a code. A
+           separate sign-up would also answer "is this number registered?" for
+           anyone who cared to ask. -->
+      <form id="phone-form" class="step form" data-step="phone">
+        <p class="step__lede">
+          Your message is not transmitted. It is <em>carried</em> — run across
+          every landmass, swum across every sea, at world-record pace the whole
+          way. It arrives when a human could have arrived, and not one second
+          sooner.
+        </p>
+
+        <div class="field">
+          <span class="field__label">Your phone number</span>
+          <div class="phone-entry">
+            <select id="calling-code" class="select select--code" aria-label="Country calling code"></select>
+            <input id="phone" name="phone" type="tel" inputmode="tel" autocomplete="tel"
+                   placeholder="7911 123456" required>
+          </div>
+          <p class="field__hint">Used to sign you in, and never shown to anyone else.</p>
+        </div>
+
+        <button class="btn btn--primary btn--block" type="submit" data-label="Send me a code">
+          Send me a code
+        </button>
+        <p class="form__error" data-error></p>
+      </form>
+
+      <form id="code-form" class="step form" data-step="code" hidden>
+        <p class="step__lede">
+          Six digits are on their way to <b data-masked></b>.
+        </p>
+
+        <div class="field">
+          <span class="field__label">Enter the code</span>
+          <!-- Six boxes rather than one field: it shows how many digits are
+               wanted, and makes a mistyped digit obvious. -->
+          <div class="code" id="code" role="group" aria-label="Six digit code">
+            <input inputmode="numeric" autocomplete="one-time-code" maxlength="1" aria-label="Digit 1">
+            <input inputmode="numeric" maxlength="1" aria-label="Digit 2">
+            <input inputmode="numeric" maxlength="1" aria-label="Digit 3">
+            <input inputmode="numeric" maxlength="1" aria-label="Digit 4">
+            <input inputmode="numeric" maxlength="1" aria-label="Digit 5">
+            <input inputmode="numeric" maxlength="1" aria-label="Digit 6">
+          </div>
+          <p class="field__hint" data-expiry></p>
+        </div>
+
+        <button class="btn btn--primary btn--block" type="submit" data-label="Sign in">Sign in</button>
+        <div class="form__aside">
+          <button type="button" class="linky" data-resend>Send another</button>
+          <button type="button" class="linky" data-restart>Use a different number</button>
+        </div>
+        <p class="form__error" data-error></p>
+      </form>
+
+      <form id="profile-form" class="step form" data-step="profile" hidden>
+        <p class="step__lede">
+          That number is new here. Two things and you are away.
+        </p>
+
+        <label class="field">
+          <span class="field__label">Handle</span>
+          <input name="handle" autocomplete="username" required placeholder="kipchoge"
+                 pattern="[A-Za-z0-9_\-]{2,24}">
+          <p class="field__hint">What other couriers will call you.</p>
+        </label>
+
+        <div class="field">
+          <span class="field__label">Where do you stand?</span>
+          <div class="citypick" data-citypick="register">
+            <input class="citypick__input" placeholder="Search for your city…" autocomplete="off">
+            <ul class="citypick__results" hidden></ul>
+          </div>
+          <p class="citypick__chosen" data-chosen hidden></p>
+          <p class="field__hint">Every journey is measured from here.</p>
+        </div>
+
+        <button class="btn btn--primary btn--block" type="submit" data-label="Enlist">Enlist</button>
+        <p class="form__error" data-error></p>
+      </form>
     </div>
-
-    <p class="auth__blurb">
-      Your message is not transmitted. It is <em>carried</em> — run across every
-      landmass, swum across every sea, at world-record pace the whole way. It
-      appears in the recipient's hands when a human could have arrived, and not
-      one second sooner.
-    </p>
-
-    <!-- Signing in and enlisting are the same act: a number, then a code. A
-         separate sign-up would also answer "is this number registered?" for
-         anyone who cared to ask. -->
-
-    <form id="phone-form" class="form">
-      <div class="field">
-        <span class="field__label">Your phone number</span>
-        <div class="phone-entry">
-          <select id="calling-code" class="select select--code" aria-label="Country calling code"></select>
-          <input id="phone" name="phone" type="tel" inputmode="tel" autocomplete="tel"
-                 placeholder="7911 123456" required>
-        </div>
-        <p class="field__hint">Used to sign you in, and never shown to anyone else.</p>
-      </div>
-      <button class="btn btn--primary btn--block" type="submit">Send me a code</button>
-      <p class="form__error" data-error></p>
-    </form>
-
-    <form id="code-form" class="form" hidden>
-      <div class="field">
-        <span class="field__label">Code sent to <span data-masked></span></span>
-        <input id="code" name="code" inputmode="numeric" autocomplete="one-time-code"
-               maxlength="6" pattern="[0-9]*" placeholder="······" class="code-input" required>
-        <p class="field__hint" data-code-hint>Six digits. It expires in ten minutes.</p>
-      </div>
-      <button class="btn btn--primary btn--block" type="submit">Sign in</button>
-      <div class="form__aside">
-        <button type="button" class="linky" data-resend>Send another</button>
-        <button type="button" class="linky" data-restart>Use a different number</button>
-      </div>
-      <p class="form__error" data-error></p>
-    </form>
-
-    <form id="profile-form" class="form" hidden>
-      <p class="auth__welcome">That number is new here. Two things and you are away.</p>
-      <label class="field">
-        <span class="field__label">Handle</span>
-        <input name="handle" autocomplete="username" required placeholder="kipchoge"
-               pattern="[A-Za-z0-9_\-]{2,24}">
-      </label>
-      <div class="field">
-        <span class="field__label">Where do you stand?</span>
-        <div class="citypick" data-citypick="register">
-          <input class="citypick__input" placeholder="Search for your city…" autocomplete="off">
-          <ul class="citypick__results" hidden></ul>
-        </div>
-        <p class="citypick__chosen" data-chosen hidden></p>
-      </div>
-      <button class="btn btn--primary btn--block" type="submit">Enlist</button>
-      <p class="form__error" data-error></p>
-    </form>
   </div>
 </section>
 

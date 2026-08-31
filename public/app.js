@@ -697,24 +697,195 @@ function showView(name) {
 
 /**
  * A number, then a code, then — only for a number nobody has used before — a
- * handle and a home. Signing in and enlisting are the same three steps, which
- * is both kinder and means the page never reveals whether a number is already
- * registered.
+ * handle and a home.
+ *
+ * Signing in and enlisting are the same three steps, which is both kinder and
+ * means the page never reveals whether a number is already registered.
  */
-const auth = { phone: null, masked: null };
+const STEPS = ["phone", "code", "profile"];
+
+const auth = {
+  phone: null,
+  masked: null,
+  expiresAt: null,
+  resendAt: 0,
+  step: "phone",
+};
+
+/* ── step machinery ───────────────────────────────────────────────────── */
 
 function showAuthStep(step) {
-  $("#phone-form").hidden = step !== "phone";
-  $("#code-form").hidden = step !== "code";
-  $("#profile-form").hidden = step !== "profile";
+  auth.step = step;
 
-  const focus = { phone: "#phone", code: "#code", profile: '#profile-form input[name="handle"]' }[step];
-  setTimeout(() => $(focus)?.focus(), 30);
+  for (const form of $$(".step")) {
+    const showing = form.dataset.step === step;
+    form.hidden = !showing;
+    if (showing) {
+      // Restart the entrance animation each time rather than only on first paint.
+      form.classList.remove("is-entering");
+      void form.offsetWidth;
+      form.classList.add("is-entering");
+    }
+  }
+
+  const reached = STEPS.indexOf(step);
+  $("#waypoints").dataset.reached = step;
+  $$(".waypoints__leg").forEach((leg, i) => {
+    leg.classList.toggle("is-done", i < reached);
+    leg.classList.toggle("is-here", i === reached);
+  });
+
+  const focus = {
+    phone: "#phone",
+    code: "#code input",
+    profile: '#profile-form input[name="handle"]',
+  }[step];
+  // Wait for the entrance animation to start before stealing focus, or mobile
+  // browsers scroll the card around mid-transition.
+  setTimeout(() => $(focus)?.focus(), 120);
 }
+
+/** Buttons that are doing something say so, and cannot be pressed twice. */
+async function whileBusy(button, work) {
+  button.classList.add("is-busy");
+  button.disabled = true;
+  try {
+    return await work();
+  } finally {
+    button.classList.remove("is-busy");
+    button.disabled = false;
+  }
+}
+
+const errorFor = (step) => $(`#${step}-form [data-error]`);
+
+/* ── the code boxes ───────────────────────────────────────────────────── */
+
+/**
+ * Six boxes behaving like one field.
+ *
+ * The fiddly parts are the ones people actually do: pasting a code from a
+ * message, letting the browser autofill it, backspacing through a typo, and
+ * expecting it to submit itself once the last digit lands rather than hunting
+ * for a button.
+ */
+function initCodeBoxes(onComplete) {
+  const boxes = $$("#code input");
+
+  const value = () => boxes.map((b) => b.value).join("");
+  const clear = () => { for (const b of boxes) b.value = ""; };
+
+  /** Spread a run of digits across the boxes from `from` onwards. */
+  const fill = (digits, from = 0) => {
+    const cleaned = digits.replace(/\D/g, "");
+    for (let i = 0; i < cleaned.length && from + i < boxes.length; i++) {
+      boxes[from + i].value = cleaned[i];
+    }
+    const next = Math.min(from + cleaned.length, boxes.length - 1);
+    boxes[next].focus();
+    boxes[next].select();
+    if (value().length === boxes.length) onComplete();
+  };
+
+  boxes.forEach((box, i) => {
+    box.addEventListener("input", () => {
+      // Autofill and paste both arrive as more than one character at once.
+      if (box.value.length > 1) {
+        const digits = box.value;
+        box.value = "";
+        fill(digits, i);
+        return;
+      }
+      if (!/^\d$/.test(box.value)) { box.value = ""; return; }
+      if (i < boxes.length - 1) boxes[i + 1].focus();
+      if (value().length === boxes.length) onComplete();
+    });
+
+    box.addEventListener("keydown", (e) => {
+      if (e.key === "Backspace" && !box.value && i > 0) {
+        e.preventDefault();
+        boxes[i - 1].value = "";
+        boxes[i - 1].focus();
+      } else if (e.key === "ArrowLeft" && i > 0) {
+        e.preventDefault(); boxes[i - 1].focus();
+      } else if (e.key === "ArrowRight" && i < boxes.length - 1) {
+        e.preventDefault(); boxes[i + 1].focus();
+      }
+    });
+
+    box.addEventListener("paste", (e) => {
+      e.preventDefault();
+      fill(e.clipboardData.getData("text"), i);
+    });
+
+    box.addEventListener("focus", () => box.select());
+  });
+
+  return {
+    value,
+    clear,
+    reset() {
+      clear();
+      boxes[0].focus();
+    },
+    /** A wrong code deserves a flinch, not just red text. */
+    reject() {
+      const group = $("#code");
+      group.classList.remove("is-wrong");
+      void group.offsetWidth;
+      group.classList.add("is-wrong");
+      clear();
+      boxes[0].focus();
+    },
+  };
+}
+
+let codeBoxes;
+
+/* ── the code's short life ────────────────────────────────────────────── */
+
+const mmss = (seconds) => {
+  const s = Math.max(0, Math.ceil(seconds));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+};
+
+/**
+ * Keep the code step honest about time: how long the code has left, and when
+ * another one can be asked for. Both are real limits on the server, so saying
+ * nothing would just produce a confusing refusal later.
+ */
+function startCodeClock() {
+  clearInterval(startCodeClock.timer);
+
+  const tick = () => {
+    if (auth.step !== "code") return;
+
+    const hint = $("[data-expiry]");
+    const left = (auth.expiresAt - Date.now()) / 1000;
+    hint.textContent = left > 0
+      ? `Expires in ${mmss(left)}.`
+      : "That code has expired — ask for another.";
+
+    const resend = $("[data-resend]");
+    const wait = (auth.resendAt - Date.now()) / 1000;
+    if (wait > 0) {
+      resend.disabled = true;
+      resend.textContent = `Send another in ${mmss(wait)}`;
+    } else {
+      resend.disabled = false;
+      resend.textContent = "Send another";
+    }
+  };
+
+  tick();
+  startCodeClock.timer = setInterval(tick, 1000);
+}
+
+/* ── the steps themselves ─────────────────────────────────────────────── */
 
 /**
  * Guess the caller's country from their browser, so most people never touch
- * the dropdown. It is only a default — the field is theirs to change.
+ * the dropdown. Only a default — the field is theirs to change.
  */
 function guessRegion() {
   for (const tag of navigator.languages ?? [navigator.language]) {
@@ -740,88 +911,115 @@ async function fillCallingCodes() {
   }
 }
 
-async function requestCode(error) {
-  error.textContent = "";
-  const phone = $("#phone").value;
-  const country = $("#calling-code").value;
-
-  const result = await post("/api/auth/request", { phone, country });
-  auth.phone = result.phone;
-  auth.masked = result.masked;
-
-  $("[data-masked]").textContent = result.masked;
-  $("#code").value = "";
-  showAuthStep("code");
-}
-
-function wireAuth() {
-  fillCallingCodes();
-  initCityPicker($('[data-citypick="register"]'), (city) => { state.registerCity = city; });
-
-  $("#phone-form").addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const button = e.target.querySelector("button");
-    const error = $("[data-error]", e.target);
-    button.disabled = true;
-    try {
-      await requestCode(error);
-    } catch (ex) {
-      error.textContent = ex.message;
-    } finally {
-      button.disabled = false;
-    }
+async function requestCode() {
+  const result = await post("/api/auth/request", {
+    phone: $("#phone").value,
+    country: $("#calling-code").value,
   });
 
-  $("#code-form").addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const button = e.target.querySelector('button[type="submit"]');
-    const error = $("[data-error]", e.target);
-    error.textContent = "";
-    button.disabled = true;
+  auth.phone = result.phone;
+  auth.masked = result.masked;
+  auth.expiresAt = Date.now() + result.expiresInSeconds * 1000;
+  // Long enough that tapping twice cannot walk into the per-number ceiling.
+  auth.resendAt = Date.now() + 30_000;
+
+  $("[data-masked]").textContent = result.masked;
+  codeBoxes.clear();
+  showAuthStep("code");
+  startCodeClock();
+}
+
+async function submitCode() {
+  const error = errorFor("code");
+  error.textContent = "";
+
+  const code = codeBoxes.value();
+  if (code.length !== 6) {
+    error.textContent = "All six digits, please.";
+    return;
+  }
+
+  await whileBusy($('#code-form button[type="submit"]'), async () => {
     try {
-      const result = await post("/api/auth/verify", { phone: auth.phone, code: $("#code").value });
+      const result = await post("/api/auth/verify", { phone: auth.phone, code });
       if (result.needsProfile) showAuthStep("profile");
       else await enterApp();
     } catch (ex) {
       error.textContent = ex.message;
-      $("#code").select();
-    } finally {
-      button.disabled = false;
+      codeBoxes.reject();
     }
   });
+}
 
-  $("[data-resend]").addEventListener("click", async (e) => {
-    const error = $("[data-error]", $("#code-form"));
-    e.target.disabled = true;
+function wireAuth() {
+  fillCallingCodes();
+  codeBoxes = initCodeBoxes(submitCode);
+  initCityPicker($('[data-citypick="register"]'), (city) => {
+    state.registerCity = city;
+    // A small reward for answering: the globe goes and looks.
+    aimAuthGlobe(city);
+  });
+  showAuthStep("phone");
+
+  $("#phone-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const error = errorFor("phone");
+    error.textContent = "";
+    await whileBusy(e.target.querySelector("button"), async () => {
+      try {
+        await requestCode();
+      } catch (ex) {
+        error.textContent = ex.message;
+      }
+    });
+  });
+
+  $("#code-form").addEventListener("submit", (e) => {
+    e.preventDefault();
+    submitCode();
+  });
+
+  $("[data-resend]").addEventListener("click", async () => {
+    const error = errorFor("code");
+    error.textContent = "";
     try {
-      await requestCode(error);
+      await requestCode();
       toast("Another code is on its way.");
     } catch (ex) {
       error.textContent = ex.message;
-    } finally {
-      // A short cool-off, so nobody taps their way into the per-number ceiling.
-      setTimeout(() => { e.target.disabled = false; }, 15000);
+      // The server refused, so do not promise a retry sooner than it will allow.
+      auth.resendAt = Date.now() + 60_000;
     }
   });
 
   $("[data-restart]").addEventListener("click", () => {
     auth.phone = null;
-    $("[data-error]", $("#code-form")).textContent = "";
+    clearInterval(startCodeClock.timer);
+    errorFor("code").textContent = "";
+    codeBoxes.clear();
     showAuthStep("phone");
+    $("#phone").select();
   });
 
   $("#profile-form").addEventListener("submit", async (e) => {
     e.preventDefault();
     const form = new FormData(e.target);
-    const error = $("[data-error]", e.target);
+    const error = errorFor("profile");
     error.textContent = "";
-    if (!state.registerCity) { error.textContent = "Pick the city you are standing in."; return; }
-    try {
-      await post("/api/auth/enrol", { handle: form.get("handle"), city: state.registerCity });
-      await enterApp();
-    } catch (ex) {
-      error.textContent = ex.message;
+
+    if (!state.registerCity) {
+      error.textContent = "Pick the city you are standing in.";
+      return;
     }
+
+    await whileBusy(e.target.querySelector('button[type="submit"]'), async () => {
+      try {
+        await post("/api/auth/enrol", { handle: form.get("handle"), city: state.registerCity });
+        await enterApp();
+      } catch (ex) {
+        error.textContent = ex.message;
+      }
+    });
   });
 }
 
@@ -970,12 +1168,19 @@ async function enterApp() {
   setInterval(() => refresh().catch(() => {}), 20000);
 }
 
+/**
+ * The globe behind the sign-in card.
+ *
+ * It turns slowly on its own until someone says where they are standing, at
+ * which point it stops and goes to look — a small reward for answering, and a
+ * first glimpse of the thing the whole app is about.
+ */
 function startAuthGlobe() {
   const canvas = $("#auth-globe");
   authGlobe = new Globe(canvas, world);
   authGlobe.zoom = 1.35;
-  // It never stops turning, so it never gets to use the cached full-resolution
-  // raster. Coarser pixels keep a continuously spinning globe cheap.
+  // Turning constantly, it never gets to use the cached full-resolution raster,
+  // and it sits behind a heavy scrim. Coarse pixels are plenty.
   authGlobe.motionQuality = 3;
   authGlobe.maxDpr = 1;
 
@@ -985,15 +1190,38 @@ function startAuthGlobe() {
 
   loadTerrain().then((image) => { if (image && authGlobe) authGlobe.setTexture(image); });
 
+  // A read-only window onto the camera, for the browser test.
+  window.__authGlobe = () => ({
+    lat: +authGlobe.center.lat.toFixed(3),
+    lon: +authGlobe.center.lon.toFixed(3),
+    zoom: +authGlobe.zoom.toFixed(3),
+  });
+
   let lon = 0;
   const tick = () => {
     if ($("#auth").hidden) return;
-    lon = (lon + 0.045) % 360;
-    authGlobe.setCenter(14, lon);
-    authGlobe.render({});
+
+    if (authHome) {
+      // Handed over: ease to where they said they were and stay there.
+      authGlobe.step(0.06);
+    } else {
+      lon = (lon + 0.045) % 360;
+      authGlobe.setCenter(14, lon);
+    }
+
+    authGlobe.render({ to: authHome });
     requestAnimationFrame(tick);
   };
   tick();
+}
+
+/** Where the sign-in globe has been asked to look, once it has been asked. */
+let authHome = null;
+
+function aimAuthGlobe(city) {
+  if (!authGlobe) return;
+  authHome = { lat: city.lat, lon: city.lon };
+  authGlobe.lookAt(city.lat, city.lon, 2.4);
 }
 
 async function boot() {
