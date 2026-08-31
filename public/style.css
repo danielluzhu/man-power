@@ -285,6 +285,28 @@ textarea { resize: vertical; min-height: 6rem; line-height: 1.6; }
   line-height: 1.5;
 }
 
+/* Said plainly rather than styled as an error: nothing has gone wrong, the
+   server simply cannot send. */
+.notice {
+  margin: 0 0 1.3rem;
+  padding: .75rem .85rem;
+  border: 1px solid rgba(240,180,41,.35);
+  border-radius: var(--radius);
+  background: rgba(240,180,41,.07);
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--ink-dim);
+}
+.notice b { color: var(--run); font-weight: 600; }
+.notice code {
+  font: 11.5px var(--mono);
+  color: var(--ink);
+  background: var(--bg-sunk);
+  padding: .1rem .3rem;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
 /* Country code and number are one number, so they read as one control. */
 .phone-entry { display: flex; gap: .4rem; }
 .phone-entry .select--code {

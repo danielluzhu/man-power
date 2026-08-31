@@ -358,12 +358,17 @@ const routes = {
 
     // The normalised number goes back so the next step is unambiguous, and the
     // masked form so the page can show which number it went to.
+    //
+    // `delivered` says whether a message was actually sent. Without a provider
+    // the code goes to the server log, and a page claiming it is "on its way"
+    // would be lying to someone staring at a phone that will never buzz.
     return json({
       ok: true,
       phone: number.e164,
       masked: maskPhone(number.e164),
       codeLength: CODE_LENGTH,
       expiresInSeconds,
+      delivered: sms.live,
     });
   },
 
@@ -527,6 +532,7 @@ const routes = {
         messages: { total: counts.total, inFlight: counts.inFlight ?? 0 },
         couriers: db.query("SELECT COUNT(*) AS n FROM users").get().n,
         delivery: { ...delivery.stats, backlog, subscriptions: store.countSubscriptions(db) },
+        sms: { transport: sms.name, live: sms.live },
       },
       healthy ? 200 : 503
     );

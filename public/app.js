@@ -973,7 +973,16 @@ async function requestCode() {
   // Long enough that tapping twice cannot walk into the per-number ceiling.
   auth.resendAt = Date.now() + 30_000;
 
+  // Never claim a message is on its way when the server could not send one —
+  // the lede and the notice would contradict each other, and someone would sit
+  // watching a phone that is never going to buzz.
+  const undelivered = result.delivered === false;
+  $("[data-undelivered]").hidden = !undelivered;
+  $("[data-code-lede]").innerHTML = undelivered
+    ? `A code was issued for <b data-masked></b>.`
+    : `Six digits are on their way to <b data-masked></b>.`;
   $("[data-masked]").textContent = result.masked;
+
   codeBoxes.clear();
   showAuthStep("code");
   startCodeClock();

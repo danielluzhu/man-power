@@ -155,6 +155,13 @@ try {
         await page.$$eval("#auth [data-error]", (ns) => ns.every((n) => n.getAttribute("role") === "alert")));
   check("it says which number the code went to",
         /\+\d+[^\d]*\d{3}/.test(await page.$eval("[data-masked]", (el) => el.textContent)));
+  // With no SMS provider the page must not claim a message is on its way.
+  const undelivered = await page.$eval("[data-undelivered]", (el) => !el.hidden);
+  const lede = await page.$eval("[data-code-lede]", (el) => el.textContent);
+  check("it is honest about whether a message was actually sent",
+        undelivered ? !/on their way/.test(lede) : /on their way/.test(lede),
+        undelivered ? "no provider configured, and it says so" : "sent for real");
+
   check("the code has a visible expiry",
         /Expires in \d+:\d\d/.test(await page.$eval("[data-expiry]", (el) => el.textContent)));
   check("resending is held off, and says for how long",

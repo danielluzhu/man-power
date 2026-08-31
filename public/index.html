@@ -66,8 +66,19 @@
       </form>
 
       <form id="code-form" class="step form" data-step="code" hidden>
-        <p class="step__lede">
+        <p class="step__lede" data-code-lede>
           Six digits are on their way to <b data-masked></b>.
+        </p>
+
+        <!-- Shown only when the server has no SMS provider and wrote the code to
+             its log instead of sending it. -->
+        <p class="notice" data-undelivered hidden>
+          <b>Nothing was actually sent.</b>
+          This server has no SMS provider configured, so the code went to its
+          log rather than to your phone. Find it with
+          <code>journalctl -u man-power | grep "SMS to"</code>, or set
+          <code>TWILIO_ACCOUNT_SID</code>, <code>TWILIO_AUTH_TOKEN</code> and
+          <code>TWILIO_FROM</code> to send for real.
         </p>
 
         <div class="field">
