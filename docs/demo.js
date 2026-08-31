@@ -572,9 +572,7 @@ function renderJournal(showcase) {
   const days = Math.round(showcase.totalSeconds / 86400);
   $("[data-journal-title]").textContent = `${capitalise(spell(days))} days, written down`;
   $("[data-journal-blurb]").textContent =
-    `This is the crossing above, in full. Not an illustration of one — the actual ` +
-    `legs the router chose, timed against the actual records, from the moment the ` +
-    `courier leaves ${showcase.from.name} to the moment they knock in ${showcase.to.name}.`;
+    `The crossing above, leg by leg — ${showcase.from.name} to ${showcase.to.name}.`;
 
   const dayOf = (seconds) => Math.floor(seconds / 86400) + 1;
 
