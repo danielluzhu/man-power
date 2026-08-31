@@ -1,6 +1,6 @@
 # Man Power
 
-Carrier-pigeon messaging, except the courier is the fastest human alive.
+Your message is not transmitted. It is carried — on foot, at world-record pace.
 
 Send a message and it does not appear in the recipient's inbox until enough real
 time has passed for a world-record athlete to have physically covered the
@@ -19,9 +19,9 @@ project site runs the real routing engine in your browser, no server involved.
 
 ## The idea
 
-A carrier pigeon flies at roughly 80 km/h. A human does not. This app takes that
-premise seriously and asks what messaging would feel like if the fastest person
-who has ever lived had to carry every message by hand.
+Messaging feels instant because nothing physically moves. This app asks what it
+would feel like if something did — if every message had to be carried there by
+hand, by the fastest person who has ever lived.
 
 So a message is not transmitted. It is **carried**. The server searches for the
 fastest way across the world between sender and recipient — over mountains,

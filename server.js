@@ -1,7 +1,7 @@
 /**
  * server.js — Man Power HTTP server.
  *
- * Carrier-pigeon messaging, except the courier is the fastest human alive.
+ * Messages carried on foot, at world-record pace.
  * Send a message and it does not appear in the recipient's inbox until enough
  * real time has passed for a world-record athlete to have physically covered
  * the distance — running the land, swimming the water.

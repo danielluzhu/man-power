@@ -155,7 +155,7 @@ section > h2, section > p, .records__note { max-width: var(--measure); margin-in
 .hero__veil {
   position: absolute; inset: 0;
   background:
-    radial-gradient(ellipse 46% 46% at 32% 46%, rgba(7,13,21,.94), rgba(7,13,21,.6) 55%, transparent 78%),
+    radial-gradient(ellipse 50% 48% at 33% 47%, rgba(7,13,21,.97), rgba(7,13,21,.74) 55%, transparent 82%),
     linear-gradient(to bottom, rgba(7,13,21,.7), transparent 18%, transparent 74%, var(--bg));
 }
 
@@ -169,6 +169,13 @@ section > h2, section > p, .records__note { max-width: var(--measure); margin-in
 }
 .wordmark span { display: block; color: var(--run); }
 
+/*
+ * The copy sits over a map that is moving, so at some point in the loop the
+ * route or a marker passes behind any given word. A shadow makes the text hold
+ * regardless, which a gradient tuned to one frame cannot.
+ */
+.lede, .sub { text-shadow: 0 1px 14px rgba(7,13,21,.95), 0 0 3px rgba(7,13,21,.9); }
+
 .lede {
   font-family: var(--serif);
   font-optical-sizing: auto;
@@ -179,7 +186,7 @@ section > h2, section > p, .records__note { max-width: var(--measure); margin-in
   color: var(--ink);
   margin-bottom: 1.1rem;
 }
-.sub { color: var(--ink-dim); max-width: 36rem; margin-inline: auto; }
+.sub { color: var(--ink-dim); max-width: 33rem; margin-inline: auto; }
 
 .hero__actions { display: flex; gap: .6rem; justify-content: center; flex-wrap: wrap; margin-top: 2rem; }
 .hero__note { margin: 1rem 0 0; font: 12px var(--mono); color: var(--ink-faint); }
